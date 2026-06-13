@@ -18,7 +18,15 @@ import httpx
 
 from models.database import Base, engine, SessionLocal, get_db
 from models.honey_batch import HoneyBatch, BatchEvent
+from models.weather import WeatherForecast, WeatherAlert, AlertAction
 from routers.trace import router as trace_router
+from services.weather_service import (
+    generate_hourly_forecast,
+    generate_daily_summary,
+    detect_extreme_weather,
+    generate_alert_actions,
+    ALERT_TYPE_META,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,6 +169,32 @@ class RatioRecommendationRequest(BaseModel):
     temperature: float
     colony_strength: str
     period: Optional[str] = None
+
+
+class AlertActionUpdate(BaseModel):
+    is_completed: bool
+    completed_by: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class WeatherAlertAck(BaseModel):
+    acknowledged: bool
+    acknowledged_by: Optional[str] = None
+
+
+_WEATHER_CACHE: Dict[str, Dict[str, Any]] = {}
+_WEATHER_CACHE_TTL = 3600
+
+
+def _get_cached_weather(key: str) -> Optional[Any]:
+    entry = _WEATHER_CACHE.get(key)
+    if entry and (time.time() - entry["time"]) < _WEATHER_CACHE_TTL:
+        return entry["data"]
+    return None
+
+
+def _set_cached_weather(key: str, data: Any) -> None:
+    _WEATHER_CACHE[key] = {"data": data, "time": time.time()}
 
 
 def _get_period_by_date(d: datetime) -> str:
@@ -1359,6 +1393,223 @@ async def get_feed_types():
             {"code": "medium", "name": "中等群"},
             {"code": "strong", "name": "强群"}
         ]
+    }
+
+
+@app.get("/api/weather/farms", summary="获取所有蜂场天气概览（含7天预报图标条）")
+async def get_weather_farms_overview(db: Session = Depends(get_db)):
+    now = datetime.now()
+    cache_key = f"weather_farms_overview_{now.strftime('%Y%m%d%H')}"
+    cached = _get_cached_weather(cache_key)
+    if cached:
+        return cached
+
+    result_farms = []
+    for farm in BEE_FARMS:
+        hourly = generate_hourly_forecast(farm["id"], farm["lat"], farm["lng"], days=7)
+        daily = generate_daily_summary(farm["id"], hourly)
+        alerts = detect_extreme_weather(hourly)
+
+        critical_count = sum(1 for a in alerts if a["severity"] == "critical")
+        warning_count = sum(1 for a in alerts if a["severity"] == "warning")
+        info_count = sum(1 for a in alerts if a["severity"] == "info")
+
+        today = daily[0] if daily else None
+        result_farms.append({
+            **farm,
+            "current": {
+                "temperature": today["temp_avg"] if today else 0,
+                "humidity": today["humidity_avg"] if today else 0,
+                "weather_icon": today["weather_icon"] if today else "sun",
+                "weather_desc": today["weather_desc"] if today else "晴",
+                "temp_max": today["temp_max"] if today else 0,
+                "temp_min": today["temp_min"] if today else 0,
+            },
+            "daily_forecast": daily,
+            "alerts_summary": {
+                "total": len(alerts),
+                "critical": critical_count,
+                "warning": warning_count,
+                "info": info_count,
+                "highest_severity": "critical" if critical_count > 0 else ("warning" if warning_count > 0 else ("info" if info_count > 0 else None)),
+            }
+        })
+
+    result = {
+        "timestamp": now.isoformat(),
+        "farm_count": len(result_farms),
+        "farms": result_farms,
+        "alert_type_meta": ALERT_TYPE_META,
+    }
+    _set_cached_weather(cache_key, result)
+    return result
+
+
+@app.get("/api/weather/farm/{farm_id}", summary="获取单个蜂场详细天气数据")
+async def get_weather_farm_detail(
+    farm_id: str,
+    days: int = Query(7, ge=1, le=14, description="预报天数"),
+    db: Session = Depends(get_db)
+):
+    farm = next((f for f in BEE_FARMS if f["id"] == farm_id), None)
+    if not farm:
+        raise HTTPException(status_code=404, detail=f"蜂场不存在: {farm_id}")
+
+    now = datetime.now()
+    cache_key = f"weather_detail_{farm_id}_{days}_{now.strftime('%Y%m%d%H')}"
+    cached = _get_cached_weather(cache_key)
+    if cached:
+        return cached
+
+    hourly = generate_hourly_forecast(farm_id, farm["lat"], farm["lng"], days=days)
+    daily = generate_daily_summary(farm_id, hourly)
+    alerts = detect_extreme_weather(hourly)
+
+    alerts_with_actions = []
+    for alert in alerts:
+        actions = generate_alert_actions(alert["alert_type"], alert["level"])
+        alerts_with_actions.append({
+            **alert,
+            "actions": actions,
+        })
+
+    severity_order = {"critical": 0, "warning": 1, "info": 2}
+    alerts_with_actions.sort(key=lambda x: (severity_order.get(x["severity"], 3), x["start_time"]))
+
+    result = {
+        "timestamp": now.isoformat(),
+        "farm": farm,
+        "hourly_forecast": hourly,
+        "daily_forecast": daily,
+        "alerts": alerts_with_actions,
+        "alerts_summary": {
+            "total": len(alerts),
+            "critical": sum(1 for a in alerts if a["severity"] == "critical"),
+            "warning": sum(1 for a in alerts if a["severity"] == "warning"),
+            "info": sum(1 for a in alerts if a["severity"] == "info"),
+        },
+        "alert_type_meta": ALERT_TYPE_META,
+    }
+    _set_cached_weather(cache_key, result)
+    return result
+
+
+@app.get("/api/weather/farm/{farm_id}/alerts", summary="获取蜂场预警时间轴")
+async def get_weather_alerts_timeline(
+    farm_id: str,
+    days: int = Query(7, ge=1, le=14),
+    db: Session = Depends(get_db)
+):
+    farm = next((f for f in BEE_FARMS if f["id"] == farm_id), None)
+    if not farm:
+        raise HTTPException(status_code=404, detail=f"蜂场不存在: {farm_id}")
+
+    now = datetime.now()
+    cache_key = f"weather_alerts_{farm_id}_{days}_{now.strftime('%Y%m%d%H')}"
+    cached = _get_cached_weather(cache_key)
+    if cached:
+        return cached
+
+    hourly = generate_hourly_forecast(farm_id, farm["lat"], farm["lng"], days=days)
+    alerts = detect_extreme_weather(hourly)
+
+    timeline_start = now.replace(minute=0, second=0, microsecond=0)
+    timeline_slots = []
+    for h in range(days * 24):
+        slot_time = timeline_start + timedelta(hours=h)
+        slot_str = slot_time.isoformat()
+        hourly_item = next((x for x in hourly if x["forecast_time"] == slot_str), None)
+
+        slot_alerts = []
+        if hourly_item:
+            for alert in alerts:
+                if alert["start_time"] <= slot_str <= alert["end_time"]:
+                    slot_alerts.append({
+                        "alert_type": alert["alert_type"],
+                        "severity": alert["severity"],
+                        "level": alert["level"],
+                    })
+
+        timeline_slots.append({
+            "time": slot_str,
+            "hour": slot_time.hour,
+            "date": slot_time.strftime("%Y-%m-%d"),
+            "temperature": hourly_item["temperature"] if hourly_item else None,
+            "humidity": hourly_item["humidity"] if hourly_item else None,
+            "wind_speed": hourly_item["wind_speed"] if hourly_item else None,
+            "precipitation": hourly_item["precipitation"] if hourly_item else None,
+            "weather_icon": hourly_item["weather_icon"] if hourly_item else None,
+            "alerts": slot_alerts,
+        })
+
+    alerts_with_actions = []
+    for alert in alerts:
+        actions = generate_alert_actions(alert["alert_type"], alert["level"])
+        completed_count = sum(1 for a in actions if a.get("is_completed"))
+        alerts_with_actions.append({
+            **alert,
+            "actions": actions,
+            "actions_total": len(actions),
+            "actions_completed": completed_count,
+        })
+
+    result = {
+        "timestamp": now.isoformat(),
+        "farm": farm,
+        "timeline": timeline_slots,
+        "alerts": alerts_with_actions,
+        "alert_type_meta": ALERT_TYPE_META,
+    }
+    _set_cached_weather(cache_key, result)
+    return result
+
+
+@app.put("/api/weather/alerts/{alert_id}/actions/{action_id}", summary="更新处置建议完成状态")
+async def update_alert_action(
+    alert_id: str,
+    action_id: str,
+    data: AlertActionUpdate,
+    db: Session = Depends(get_db)
+):
+    cache_key_prefix = f"weather_"
+    keys_to_remove = [k for k in _WEATHER_CACHE.keys() if k.startswith(cache_key_prefix)]
+    for k in keys_to_remove:
+        del _WEATHER_CACHE[k]
+
+    return {
+        "status": "success",
+        "alert_id": alert_id,
+        "action_id": action_id,
+        "is_completed": data.is_completed,
+        "completed_by": data.completed_by,
+        "completed_at": datetime.now().isoformat(),
+    }
+
+
+@app.put("/api/weather/alerts/{alert_id}/acknowledge", summary="确认预警")
+async def acknowledge_weather_alert(
+    alert_id: str,
+    data: WeatherAlertAck,
+    db: Session = Depends(get_db)
+):
+    cache_key_prefix = f"weather_"
+    keys_to_remove = [k for k in _WEATHER_CACHE.keys() if k.startswith(cache_key_prefix)]
+    for k in keys_to_remove:
+        del _WEATHER_CACHE[k]
+
+    return {
+        "status": "success",
+        "alert_id": alert_id,
+        "acknowledged": data.acknowledged,
+        "acknowledged_by": data.acknowledged_by,
+        "acknowledged_at": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/weather/alert-types", summary="获取预警类型元数据")
+async def get_alert_type_metadata():
+    return {
+        "alert_types": ALERT_TYPE_META,
     }
 
 

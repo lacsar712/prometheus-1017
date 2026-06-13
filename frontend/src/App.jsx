@@ -3,12 +3,14 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
-    Terminal, Server, Layout, Monitor, ChevronRight, Droplets
+    Terminal, Server, Layout, Monitor, ChevronRight, Droplets,
+    CloudSun
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
 import DashboardScreen from './components/DashboardScreen'
 import FeedingScreen from './components/FeedingScreen'
+import WeatherScreen from './components/WeatherScreen'
 import TracePage from './components/trace/TracePage'
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -129,7 +131,7 @@ function ConsoleApp() {
                     </div>
                 </header>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="rounded-3xl p-6 bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border border-amber-500/20">
                         <div className="flex items-start gap-4">
                             <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex-shrink-0">
@@ -186,6 +188,37 @@ function ConsoleApp() {
                                     </button>
                                     <code className="px-2 py-1 rounded-md bg-slate-900/60 text-emerald-300/90 text-xs border border-emerald-500/20 font-mono">
                                         ?screen=feeding
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-sky-500/10 via-blue-400/5 to-transparent border border-sky-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-sky-500/15 border border-sky-500/30 flex-shrink-0">
+                                <CloudSun className="w-6 h-6 text-sky-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-sky-200 mb-1">蜂场气象联动与极端天气预警 · 已上线</h3>
+                                <p className="text-sm text-sky-200/70 leading-relaxed mb-3">
+                                    对接外部气象服务，按蜂场经纬度每小时拉取未来7天逐时预报。智能识别持续高温、连阴雨、寒潮、大风四类极端天气，
+                                    自动生成预警与针对性处置建议（遮阴、补饲、保温、关巢门等）。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'weather');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/40 text-sky-300 text-xs font-medium hover:bg-sky-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <CloudSun className="w-3.5 h-3.5" />
+                                        进入气象预警
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-sky-300/90 text-xs border border-sky-500/20 font-mono">
+                                        ?screen=weather
                                     </code>
                                 </div>
                             </div>
@@ -387,6 +420,10 @@ function ScreenRouter() {
 
     if (screen === 'feeding') {
         return <FeedingScreen />;
+    }
+
+    if (screen === 'weather') {
+        return <WeatherScreen />;
     }
 
     return <ConsoleApp />;
