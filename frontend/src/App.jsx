@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo } from 'react'
 import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
-    Terminal, Server, Layout, Monitor, ChevronRight
+    Terminal, Server, Layout, Monitor, ChevronRight, Droplets
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
 import DashboardScreen from './components/DashboardScreen'
+import FeedingScreen from './components/FeedingScreen'
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -126,32 +127,65 @@ function ConsoleApp() {
                     </div>
                 </header>
 
-                <div className="rounded-3xl p-6 bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border border-amber-500/20">
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex-shrink-0">
-                            <Monitor className="w-6 h-6 text-amber-400" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border border-amber-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex-shrink-0">
+                                <Monitor className="w-6 h-6 text-amber-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-amber-200 mb-1">蜂场实时监控大屏 · 已上线</h3>
+                                <p className="text-sm text-amber-200/70 leading-relaxed mb-3">
+                                    面向中大型蜂场办公室电视墙展示场景。四象限布局：地理分布与群势、采蜜进度、异常告警时间轴、核心运营指标。
+                                    每 5 秒自动刷新，服务端 5 秒级缓存，支持单蜂场视角与多蜂场轮播。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'dashboard');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium hover:bg-amber-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <Monitor className="w-3.5 h-3.5" />
+                                        打开大屏
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                        ?screen=dashboard
+                                    </code>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <h3 className="text-lg font-semibold text-amber-200 mb-1">蜂场实时监控大屏 · 已上线</h3>
-                            <p className="text-sm text-amber-200/70 leading-relaxed mb-3">
-                                面向中大型蜂场办公室电视墙展示场景。四象限布局：地理分布与群势、采蜜进度、异常告警时间轴、核心运营指标。
-                                每 5 秒自动刷新，服务端 5 秒级缓存，支持单蜂场视角与多蜂场轮播。
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
-                                    ?screen=dashboard
-                                </code>
-                                <span className="text-amber-200/50 text-xs">全屏访问</span>
-                                <span className="text-amber-200/30 text-xs mx-1">·</span>
-                                <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
-                                    ?farm=farm_001
-                                </code>
-                                <span className="text-amber-200/50 text-xs">单蜂场</span>
-                                <span className="text-amber-200/30 text-xs mx-1">·</span>
-                                <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
-                                    ?carousel=true&interval=30
-                                </code>
-                                <span className="text-amber-200/50 text-xs">多蜂场轮播</span>
+                    </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-emerald-500/10 via-teal-400/5 to-transparent border border-emerald-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex-shrink-0">
+                                <Droplets className="w-6 h-6 text-emerald-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-emerald-200 mb-1">蜂群饲喂台账 · 已上线</h3>
+                                <p className="text-sm text-emerald-200/70 leading-relaxed mb-3">
+                                    覆盖春繁、秋繁、越冬期蜂群的人工饲喂全过程。包含物资库存看板、饲喂记录、批量登记、配比推荐智能工具。
+                                    库存低于安全线自动推送站内消息预警。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'feeding');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-medium hover:bg-emerald-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <Droplets className="w-3.5 h-3.5" />
+                                        进入饲喂台账
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-emerald-300/90 text-xs border border-emerald-500/20 font-mono">
+                                        ?screen=feeding
+                                    </code>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -336,6 +370,10 @@ function App() {
 
     if (screen === 'dashboard') {
         return <DashboardScreen />;
+    }
+
+    if (screen === 'feeding') {
+        return <FeedingScreen />;
     }
 
     return <ConsoleApp />;

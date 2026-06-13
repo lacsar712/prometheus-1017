@@ -10,9 +10,10 @@ from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, relationship
+from pydantic import BaseModel, Field
 import httpx
 
 logging.basicConfig(
@@ -51,17 +52,191 @@ class Item(Base):
     description = Column(String)
 
 
+FEED_TYPES = {
+    "sugar_syrup": {"name": "白糖糖浆", "unit": "kg", "default_safety_stock": 500},
+    "pollen_cake": {"name": "花粉饼", "unit": "kg", "default_safety_stock": 100},
+    "compound_feed": {"name": "复合饲料", "unit": "kg", "default_safety_stock": 200},
+    "mineral_salt_water": {"name": "矿物盐水", "unit": "L", "default_safety_stock": 300},
+}
+
+SEASONS = ["立春", "雨水", "惊蛰", "春分", "清明", "谷雨",
+           "立夏", "小满", "芒种", "夏至", "小暑", "大暑",
+           "立秋", "处暑", "白露", "秋分", "寒露", "霜降",
+           "立冬", "小雪", "大雪", "冬至", "小寒", "大寒"]
+
+BEE_STRENGTHS = ["weak", "medium", "strong"]
+
+
+class FeedingRecord(Base):
+    __tablename__ = "feeding_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(String, index=True, nullable=False)
+    hive_id = Column(String, index=True, nullable=False)
+    feed_type = Column(String, index=True, nullable=False)
+    ratio = Column(String, nullable=True)
+    amount = Column(Float, nullable=False)
+    feeder = Column(String, nullable=False)
+    feeding_time = Column(DateTime, nullable=False, index=True)
+    colony_status = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    period = Column(String, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_feeding_farm_time', 'farm_id', 'feeding_time'),
+        Index('idx_feeding_type_time', 'feed_type', 'feeding_time'),
+    )
+
+
+class MaterialStock(Base):
+    __tablename__ = "material_stocks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    feed_type = Column(String, unique=True, index=True, nullable=False)
+    current_stock = Column(Float, default=0.0, nullable=False)
+    safety_stock = Column(Float, nullable=False)
+    unit = Column(String, nullable=False)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def is_below_safety(self):
+        return self.current_stock < self.safety_stock
+
+
+class StockTransaction(Base):
+    __tablename__ = "stock_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    feed_type = Column(String, index=True, nullable=False)
+    change_amount = Column(Float, nullable=False)
+    transaction_type = Column(String, nullable=False)
+    related_record_id = Column(Integer, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class InAppMessage(Base):
+    __tablename__ = "in_app_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recipient = Column(String, index=True, nullable=False)
+    title = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    message_type = Column(String, default="stock_alert", nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class HiveInfo(Base):
+    __tablename__ = "hive_infos"
+
+    id = Column(String, primary_key=True, index=True)
+    farm_id = Column(String, index=True, nullable=False)
+    hive_number = Column(String, nullable=False)
+    location = Column(String, nullable=True)
+    queen_age = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class FeedingRecordCreate(BaseModel):
+    farm_id: str
+    hive_ids: List[str]
+    feed_type: str
+    ratio: Optional[str] = None
+    amount_per_hive: float
+    feeder: str
+    feeding_time: datetime
+    colony_status: Optional[str] = None
+    notes: Optional[str] = None
+    period: str
+
+
+class StockInbound(BaseModel):
+    feed_type: str
+    amount: float
+    notes: Optional[str] = None
+
+
+class RatioRecommendationRequest(BaseModel):
+    solar_term: str
+    temperature: float
+    colony_strength: str
+    period: Optional[str] = None
+
+
+def _get_period_by_date(d: datetime) -> str:
+    month = d.month
+    if 2 <= month <= 4:
+        return "spring_breeding"
+    elif 8 <= month <= 9:
+        return "autumn_breeding"
+    elif 10 <= month or month <= 1:
+        return "wintering"
+    else:
+        return "normal"
+
+
 def init_db():
     retries = 5
     while retries > 0:
         try:
             Base.metadata.create_all(bind=engine)
             logger.info("Database tables created successfully.")
+            _init_material_stocks()
+            _init_hive_infos()
             break
         except Exception as e:
             logger.error(f"Database connection failed: {e}. Retrying in 5 seconds...")
             retries -= 1
             time.sleep(5)
+
+
+def _init_material_stocks():
+    db = SessionLocal()
+    try:
+        for feed_type, info in FEED_TYPES.items():
+            existing = db.query(MaterialStock).filter(MaterialStock.feed_type == feed_type).first()
+            if not existing:
+                stock = MaterialStock(
+                    feed_type=feed_type,
+                    current_stock=round(random.uniform(info["default_safety_stock"] * 0.6, info["default_safety_stock"] * 1.5), 1),
+                    safety_stock=info["default_safety_stock"],
+                    unit=info["unit"]
+                )
+                db.add(stock)
+        db.commit()
+        logger.info("Material stocks initialized.")
+    except Exception as e:
+        logger.error(f"Failed to init material stocks: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _init_hive_infos():
+    db = SessionLocal()
+    try:
+        for farm in BEE_FARMS:
+            farm_rnd = _seeded_random(farm["id"])
+            hive_count = farm_rnd.randint(120, 480)
+            existing_count = db.query(HiveInfo).filter(HiveInfo.farm_id == farm["id"]).count()
+            if existing_count == 0:
+                for i in range(1, hive_count + 1):
+                    hive_id = f"{farm['id']}_hive_{i:04d}"
+                    hive = HiveInfo(
+                        id=hive_id,
+                        farm_id=farm["id"],
+                        hive_number=f"{farm['id'].split('_')[1].upper()}-{i:04d}",
+                        location=f"区域{chr(65 + (i // 50) % 26)}-{(i % 50) + 1}"
+                    )
+                    db.add(hive)
+        db.commit()
+        logger.info("Hive infos initialized.")
+    except Exception as e:
+        logger.error(f"Failed to init hive infos: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 app = FastAPI(title="FastAPI Prometheus Demo - 蜂场监控大屏")
@@ -533,6 +708,475 @@ async def prometheus_proxy(
         raise HTTPException(status_code=503, detail=f"无法连接到 Prometheus 服务 ({PROMETHEUS_URL})")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prometheus 代理错误: {str(e)}")
+
+
+def _update_stock_and_alert(db: Session, feed_type: str, change_amount: float, 
+                            transaction_type: str, related_record_id: int = None, notes: str = None):
+    stock = db.query(MaterialStock).filter(MaterialStock.feed_type == feed_type).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"物资 {feed_type} 不存在")
+    
+    old_below = stock.is_below_safety()
+    stock.current_stock += change_amount
+    if stock.current_stock < 0:
+        raise HTTPException(status_code=400, detail=f"物资 {FEED_TYPES[feed_type]['name']} 库存不足")
+    
+    transaction = StockTransaction(
+        feed_type=feed_type,
+        change_amount=change_amount,
+        transaction_type=transaction_type,
+        related_record_id=related_record_id,
+        notes=notes
+    )
+    db.add(transaction)
+    
+    if not old_below and stock.is_below_safety():
+        message = InAppMessage(
+            recipient="farm_owner",
+            title=f"⚠️ 物资库存预警: {FEED_TYPES[feed_type]['name']}",
+            content=f"{FEED_TYPES[feed_type]['name']} 当前库存为 {stock.current_stock:.1f} {stock.unit}，已低于安全库存 {stock.safety_stock} {stock.unit}，请及时补货！",
+            message_type="stock_alert"
+        )
+        db.add(message)
+        logger.warning(f"Stock alert triggered for {feed_type}: {stock.current_stock} < {stock.safety_stock}")
+    
+    return stock
+
+
+@app.get("/api/feeding/records", summary="分页查询饲喂记录")
+async def get_feeding_records(
+    farm_id: Optional[str] = Query(None, description="蜂场ID"),
+    feed_type: Optional[str] = Query(None, description="饲喂物类型"),
+    start_time: Optional[datetime] = Query(None, description="开始时间"),
+    end_time: Optional[datetime] = Query(None, description="结束时间"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(FeedingRecord)
+    
+    if farm_id:
+        query = query.filter(FeedingRecord.farm_id == farm_id)
+    if feed_type:
+        query = query.filter(FeedingRecord.feed_type == feed_type)
+    if start_time:
+        query = query.filter(FeedingRecord.feeding_time >= start_time)
+    if end_time:
+        query = query.filter(FeedingRecord.feeding_time <= end_time)
+    
+    total = query.count()
+    records = query.order_by(FeedingRecord.feeding_time.desc()) \
+        .offset((page - 1) * page_size) \
+        .limit(page_size) \
+        .all()
+    
+    result = []
+    for r in records:
+        farm = next((f for f in BEE_FARMS if f["id"] == r.farm_id), None)
+        feed_info = FEED_TYPES.get(r.feed_type, {})
+        result.append({
+            "id": r.id,
+            "farm_id": r.farm_id,
+            "farm_name": farm["name"] if farm else r.farm_id,
+            "hive_id": r.hive_id,
+            "feed_type": r.feed_type,
+            "feed_name": feed_info.get("name", r.feed_type),
+            "ratio": r.ratio,
+            "amount": r.amount,
+            "unit": feed_info.get("unit", ""),
+            "feeder": r.feeder,
+            "feeding_time": r.feeding_time.isoformat(),
+            "colony_status": r.colony_status,
+            "notes": r.notes,
+            "period": r.period,
+            "created_at": r.created_at.isoformat()
+        })
+    
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size,
+        "records": result
+    }
+
+
+@app.post("/api/feeding/records", summary="批量创建饲喂记录")
+async def create_feeding_records(
+    data: FeedingRecordCreate,
+    db: Session = Depends(get_db)
+):
+    if data.feed_type not in FEED_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的饲喂物类型: {data.feed_type}")
+    
+    farm = next((f for f in BEE_FARMS if f["id"] == data.farm_id), None)
+    if not farm:
+        raise HTTPException(status_code=404, detail=f"蜂场不存在: {data.farm_id}")
+    
+    total_amount = data.amount_per_hive * len(data.hive_ids)
+    
+    _update_stock_and_alert(
+        db, data.feed_type, -total_amount, 
+        "feeding_consume", notes=f"饲喂消耗: {len(data.hive_ids)} 个蜂箱"
+    )
+    
+    created_ids = []
+    for hive_id in data.hive_ids:
+        record = FeedingRecord(
+            farm_id=data.farm_id,
+            hive_id=hive_id,
+            feed_type=data.feed_type,
+            ratio=data.ratio,
+            amount=data.amount_per_hive,
+            feeder=data.feeder,
+            feeding_time=data.feeding_time,
+            colony_status=data.colony_status,
+            notes=data.notes,
+            period=data.period
+        )
+        db.add(record)
+        db.flush()
+        created_ids.append(record.id)
+    
+    db.commit()
+    
+    logger.info(f"Created {len(created_ids)} feeding records for farm {data.farm_id}")
+    
+    return {
+        "status": "success",
+        "created_count": len(created_ids),
+        "record_ids": created_ids,
+        "total_consumed": total_amount,
+        "unit": FEED_TYPES[data.feed_type]["unit"]
+    }
+
+
+@app.get("/api/feeding/hives", summary="获取蜂箱列表")
+async def get_hives(
+    farm_id: Optional[str] = Query(None, description="蜂场ID"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(HiveInfo)
+    if farm_id:
+        query = query.filter(HiveInfo.farm_id == farm_id)
+    
+    hives = query.all()
+    result = []
+    for h in hives:
+        farm = next((f for f in BEE_FARMS if f["id"] == h.farm_id), None)
+        result.append({
+            "id": h.id,
+            "farm_id": h.farm_id,
+            "farm_name": farm["name"] if farm else h.farm_id,
+            "hive_number": h.hive_number,
+            "location": h.location
+        })
+    
+    return {"hives": result, "total": len(result)}
+
+
+@app.get("/api/stocks", summary="获取物资库存列表")
+async def get_material_stocks(db: Session = Depends(get_db)):
+    now = datetime.now()
+    month_start = datetime(now.year, now.month, 1)
+    
+    stocks = db.query(MaterialStock).all()
+    result = []
+    
+    for s in stocks:
+        feed_info = FEED_TYPES.get(s.feed_type, {})
+        monthly_used = db.query(StockTransaction) \
+            .filter(
+                StockTransaction.feed_type == s.feed_type,
+                StockTransaction.transaction_type == "feeding_consume",
+                StockTransaction.created_at >= month_start
+            ) \
+            .all()
+        
+        monthly_usage = abs(sum(t.change_amount for t in monthly_used))
+        
+        result.append({
+            "feed_type": s.feed_type,
+            "feed_name": feed_info.get("name", s.feed_type),
+            "current_stock": s.current_stock,
+            "safety_stock": s.safety_stock,
+            "unit": feed_info.get("unit", s.unit),
+            "monthly_usage": round(monthly_usage, 1),
+            "is_below_safety": s.is_below_safety(),
+            "last_updated": s.last_updated.isoformat()
+        })
+    
+    return {"stocks": result}
+
+
+@app.post("/api/stocks/inbound", summary="物资入库")
+async def stock_inbound(data: StockInbound, db: Session = Depends(get_db)):
+    if data.feed_type not in FEED_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的物资类型: {data.feed_type}")
+    
+    stock = _update_stock_and_alert(
+        db, data.feed_type, data.amount,
+        "inbound", notes=data.notes or "人工入库"
+    )
+    db.commit()
+    
+    feed_info = FEED_TYPES[data.feed_type]
+    return {
+        "status": "success",
+        "feed_type": data.feed_type,
+        "feed_name": feed_info["name"],
+        "added_amount": data.amount,
+        "unit": feed_info["unit"],
+        "current_stock": stock.current_stock,
+        "is_below_safety": stock.is_below_safety()
+    }
+
+
+@app.get("/api/stocks/transactions", summary="获取库存变动记录")
+async def get_stock_transactions(
+    feed_type: Optional[str] = Query(None),
+    transaction_type: Optional[str] = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db)
+):
+    query = db.query(StockTransaction)
+    if feed_type:
+        query = query.filter(StockTransaction.feed_type == feed_type)
+    if transaction_type:
+        query = query.filter(StockTransaction.transaction_type == transaction_type)
+    
+    start_date = datetime.now() - timedelta(days=days)
+    query = query.filter(StockTransaction.created_at >= start_date)
+    
+    transactions = query.order_by(StockTransaction.created_at.desc()).all()
+    result = []
+    
+    for t in transactions:
+        feed_info = FEED_TYPES.get(t.feed_type, {})
+        result.append({
+            "id": t.id,
+            "feed_type": t.feed_type,
+            "feed_name": feed_info.get("name", t.feed_type),
+            "change_amount": t.change_amount,
+            "unit": feed_info.get("unit", ""),
+            "transaction_type": t.transaction_type,
+            "notes": t.notes,
+            "created_at": t.created_at.isoformat()
+        })
+    
+    return {"transactions": result, "total": len(result)}
+
+
+@app.get("/api/messages", summary="获取站内消息")
+async def get_in_app_messages(
+    unread_only: bool = Query(False),
+    message_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(InAppMessage).filter(InAppMessage.recipient == "farm_owner")
+    if unread_only:
+        query = query.filter(InAppMessage.is_read == False)
+    if message_type:
+        query = query.filter(InAppMessage.message_type == message_type)
+    
+    messages = query.order_by(InAppMessage.created_at.desc()).limit(50).all()
+    unread_count = db.query(InAppMessage).filter(
+        InAppMessage.recipient == "farm_owner",
+        InAppMessage.is_read == False
+    ).count()
+    
+    return {
+        "unread_count": unread_count,
+        "messages": [{
+            "id": m.id,
+            "title": m.title,
+            "content": m.content,
+            "message_type": m.message_type,
+            "is_read": m.is_read,
+            "created_at": m.created_at.isoformat()
+        } for m in messages]
+    }
+
+
+@app.put("/api/messages/{message_id}/read", summary="标记消息已读")
+async def mark_message_read(message_id: int, db: Session = Depends(get_db)):
+    message = db.query(InAppMessage).filter(InAppMessage.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="消息不存在")
+    message.is_read = True
+    db.commit()
+    return {"status": "success"}
+
+
+@app.post("/api/feeding/ratio-recommendation", summary="配比推荐")
+async def get_ratio_recommendation(data: RatioRecommendationRequest):
+    if data.solar_term not in SEASONS:
+        raise HTTPException(status_code=400, detail=f"无效的节气: {data.solar_term}")
+    if data.colony_strength not in BEE_STRENGTHS:
+        raise HTTPException(status_code=400, detail=f"无效的群势等级: {data.colony_strength}")
+    
+    period = data.period or _get_period_by_date(datetime.now())
+    
+    ratio_rules = {
+        "spring_breeding": {
+            "weak": {
+                "low_temp": "1:1.5",
+                "medium_temp": "1:1",
+                "high_temp": "1:0.8"
+            },
+            "medium": {
+                "low_temp": "1:1.2",
+                "medium_temp": "1:0.9",
+                "high_temp": "1:0.7"
+            },
+            "strong": {
+                "low_temp": "1:1",
+                "medium_temp": "1:0.8",
+                "high_temp": "1:0.6"
+            }
+        },
+        "autumn_breeding": {
+            "weak": {
+                "low_temp": "1:1.2",
+                "medium_temp": "1:1",
+                "high_temp": "1:0.9"
+            },
+            "medium": {
+                "low_temp": "1:1",
+                "medium_temp": "1:0.8",
+                "high_temp": "1:0.7"
+            },
+            "strong": {
+                "low_temp": "1:0.9",
+                "medium_temp": "1:0.7",
+                "high_temp": "1:0.6"
+            }
+        },
+        "wintering": {
+            "weak": {
+                "low_temp": "1:1",
+                "medium_temp": "1:0.9",
+                "high_temp": "1:0.8"
+            },
+            "medium": {
+                "low_temp": "1:0.9",
+                "medium_temp": "1:0.8",
+                "high_temp": "1:0.7"
+            },
+            "strong": {
+                "low_temp": "1:0.8",
+                "medium_temp": "1:0.7",
+                "high_temp": "1:0.6"
+            }
+        },
+        "normal": {
+            "weak": {
+                "low_temp": "1:1.2",
+                "medium_temp": "1:1",
+                "high_temp": "1:0.9"
+            },
+            "medium": {
+                "low_temp": "1:1",
+                "medium_temp": "1:0.8",
+                "high_temp": "1:0.7"
+            },
+            "strong": {
+                "low_temp": "1:0.9",
+                "medium_temp": "1:0.7",
+                "high_temp": "1:0.6"
+            }
+        }
+    }
+    
+    if data.temperature < 15:
+        temp_level = "low_temp"
+    elif data.temperature < 25:
+        temp_level = "medium_temp"
+    else:
+        temp_level = "high_temp"
+    
+    recommended_ratio = ratio_rules.get(period, ratio_rules["normal"]) \
+        .get(data.colony_strength, "medium") \
+        .get(temp_level, "1:1")
+    
+    period_names = {
+        "spring_breeding": "春繁期",
+        "autumn_breeding": "秋繁期",
+        "wintering": "越冬期",
+        "normal": "常规期"
+    }
+    
+    strength_names = {
+        "weak": "弱群",
+        "medium": "中等群",
+        "strong": "强群"
+    }
+    
+    temp_ranges = {
+        "low_temp": "低温 (<15°C)",
+        "medium_temp": "中温 (15-25°C)",
+        "high_temp": "高温 (>25°C)"
+    }
+    
+    explanation = f"""
+当前时期: {period_names.get(period, '常规期')}
+目标群势: {strength_names.get(data.colony_strength, '中等群')}
+环境温度: {data.temperature}°C ({temp_ranges[temp_level]})
+节气: {data.solar_term}
+
+推荐糖水比例: 白糖:水 = {recommended_ratio}
+
+饲喂建议:
+- 春繁期: 适当提高糖水浓度，补充蛋白质饲料（花粉饼）
+- 秋繁期: 保证饲料充足，促进培育适龄越冬蜂
+- 越冬期: 使用高浓度糖浆，减少蜜蜂采水负担
+- 弱群: 适当提高浓度，少量多次饲喂
+- 强群: 可适当降低浓度，加大饲喂量
+- 高温期: 适当降低浓度，增加喂水量
+    """.strip()
+    
+    return {
+        "recommended_ratio": recommended_ratio,
+        "period": period,
+        "period_name": period_names.get(period, "常规期"),
+        "solar_term": data.solar_term,
+        "temperature": data.temperature,
+        "colony_strength": data.colony_strength,
+        "strength_name": strength_names.get(data.colony_strength, "中等群"),
+        "temp_level": temp_level,
+        "explanation": explanation,
+        "amount_suggestion": {
+            "per_hive_kg": 0.5 if data.colony_strength == "weak" else (1.0 if data.colony_strength == "medium" else 1.5),
+            "frequency_days": 3 if data.colony_strength == "weak" else (2 if data.colony_strength == "medium" else 2)
+        }
+    }
+
+
+@app.get("/api/feeding/feed-types", summary="获取饲喂物类型列表")
+async def get_feed_types():
+    return {
+        "feed_types": [
+            {
+                "code": code,
+                "name": info["name"],
+                "unit": info["unit"],
+                "default_safety_stock": info["default_safety_stock"]
+            }
+            for code, info in FEED_TYPES.items()
+        ],
+        "periods": [
+            {"code": "spring_breeding", "name": "春繁期"},
+            {"code": "autumn_breeding", "name": "秋繁期"},
+            {"code": "wintering", "name": "越冬期"},
+            {"code": "normal", "name": "常规期"}
+        ],
+        "solar_terms": SEASONS,
+        "bee_strengths": [
+            {"code": "weak", "name": "弱群"},
+            {"code": "medium", "name": "中等群"},
+            {"code": "strong", "name": "强群"}
+        ]
+    }
 
 
 if __name__ == "__main__":
