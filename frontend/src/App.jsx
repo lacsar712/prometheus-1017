@@ -12,6 +12,7 @@ import DashboardScreen from './components/DashboardScreen'
 import FeedingScreen from './components/FeedingScreen'
 import WeatherScreen from './components/WeatherScreen'
 import TracePage from './components/trace/TracePage'
+import BackupScreen from './components/BackupScreen'
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -424,6 +425,10 @@ function ScreenRouter() {
 
     if (screen === 'weather') {
         return <WeatherScreen />;
+    }
+
+    if (screen === 'backup') {
+        return <BackupScreen />;
     }
 
     return <ConsoleApp />;

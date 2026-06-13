@@ -19,7 +19,9 @@ import httpx
 from models.database import Base, engine, SessionLocal, get_db
 from models.honey_batch import HoneyBatch, BatchEvent
 from models.weather import WeatherForecast, WeatherAlert, AlertAction
+from models.backup import BackupRecord
 from routers.trace import router as trace_router
+from routers.backup import router as backup_router
 from services.weather_service import (
     generate_hourly_forecast,
     generate_daily_summary,
@@ -483,6 +485,7 @@ instrumentator = Instrumentator(
 instrumentator.instrument(app).expose(app)
 
 app.include_router(trace_router)
+app.include_router(backup_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},
