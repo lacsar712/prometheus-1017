@@ -25,6 +25,7 @@ services:
     environment:
       DATABASE_URL: postgresql://user:password@db:5432/prometheus_db
       ENABLE_METRICS: "true"
+      PROMETHEUS_URL: http://prometheus:9090
       TZ: Asia/Shanghai
     ports:
       - "8000:8000"

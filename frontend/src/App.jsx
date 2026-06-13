@@ -1,25 +1,27 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import axios from 'axios'
 import {
-    Activity,
-    BarChart3,
-    Clock,
-    AlertCircle,
-    Plus,
-    Database,
-    Terminal,
-    Server,
-    Layout
+    Activity, BarChart3, Clock, AlertCircle, Plus, Database,
+    Terminal, Server, Layout, Monitor, ChevronRight
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
+import DashboardScreen from './components/DashboardScreen'
+
 const API_BASE_URL = 'http://localhost:8000';
 
-function App() {
+function ConsoleApp() {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [newItem, setNewItem] = useState({ name: '', description: '' });
     const [lastResponse, setLastResponse] = useState(null);
+
+    const params = useMemo(() => new URLSearchParams(window.location.search), []);
+    const openDashboard = () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('screen', 'dashboard');
+        window.open(url.toString(), '_blank');
+    };
 
     const fetchItems = async () => {
         try {
@@ -98,7 +100,6 @@ function App() {
         <div className="min-h-screen p-6 md:p-12 text-slate-100">
             <div className="max-w-6xl mx-auto space-y-8">
 
-                {/* Header */}
                 <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-700 pb-8">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/20">
@@ -114,13 +115,50 @@ function App() {
                             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                             Backend Online
                         </span>
+                        <button
+                            onClick={openDashboard}
+                            className="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all"
+                        >
+                            <Monitor className="w-3.5 h-3.5" />
+                            打开大屏监控
+                            <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
                     </div>
                 </header>
 
-                {/* Dash Grid */}
+                <div className="rounded-3xl p-6 bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-transparent border border-amber-500/20">
+                    <div className="flex items-start gap-4">
+                        <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex-shrink-0">
+                            <Monitor className="w-6 h-6 text-amber-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <h3 className="text-lg font-semibold text-amber-200 mb-1">蜂场实时监控大屏 · 已上线</h3>
+                            <p className="text-sm text-amber-200/70 leading-relaxed mb-3">
+                                面向中大型蜂场办公室电视墙展示场景。四象限布局：地理分布与群势、采蜜进度、异常告警时间轴、核心运营指标。
+                                每 5 秒自动刷新，服务端 5 秒级缓存，支持单蜂场视角与多蜂场轮播。
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                    ?screen=dashboard
+                                </code>
+                                <span className="text-amber-200/50 text-xs">全屏访问</span>
+                                <span className="text-amber-200/30 text-xs mx-1">·</span>
+                                <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                    ?farm=farm_001
+                                </code>
+                                <span className="text-amber-200/50 text-xs">单蜂场</span>
+                                <span className="text-amber-200/30 text-xs mx-1">·</span>
+                                <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                    ?carousel=true&interval=30
+                                </code>
+                                <span className="text-amber-200/50 text-xs">多蜂场轮播</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-                    {/* API Playground */}
                     <section className="md:col-span-2 glass-card rounded-3xl p-6 space-y-6">
                         <div className="flex items-center gap-2 mb-2">
                             <BarChart3 className="w-5 h-5 text-blue-400" />
@@ -165,7 +203,6 @@ function App() {
                             </button>
                         </div>
 
-                        {/* Last Response Info */}
                         <div className="rounded-2xl bg-slate-900/50 border border-slate-800 p-4 font-mono text-sm">
                             <div className="flex items-center gap-2 mb-2 text-slate-500">
                                 <Terminal className="w-4 h-4" />
@@ -185,7 +222,6 @@ function App() {
                         </div>
                     </section>
 
-                    {/* Monitoring Intro */}
                     <section className="glass-card rounded-3xl p-6 flex flex-col justify-between space-y-4">
                         <div>
                             <div className="flex items-center gap-2 mb-4">
@@ -227,7 +263,6 @@ function App() {
                         </a>
                     </section>
 
-                    {/* Database Demo */}
                     <section className="md:col-span-3 glass-card rounded-3xl p-6">
                         <div className="flex items-center justify-between mb-6">
                             <div className="flex items-center gap-2">
@@ -237,7 +272,6 @@ function App() {
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {/* Form */}
                             <div className="lg:col-span-1 space-y-4">
                                 <form onSubmit={addItem} className="space-y-4">
                                     <input
@@ -260,7 +294,6 @@ function App() {
                                 </form>
                             </div>
 
-                            {/* Table */}
                             <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
@@ -289,13 +322,23 @@ function App() {
                     </section>
                 </div>
 
-                {/* Footer */}
                 <footer className="text-center text-slate-500 text-sm py-8 border-t border-slate-800">
                     <p>© 2024 Prometheus Monitoring Fullstack Demo. Powered by FastAPI & React.</p>
                 </footer>
             </div>
         </div>
     )
+}
+
+function App() {
+    const params = useMemo(() => new URLSearchParams(window.location.search), []);
+    const screen = params.get('screen');
+
+    if (screen === 'dashboard') {
+        return <DashboardScreen />;
+    }
+
+    return <ConsoleApp />;
 }
 
 export default App
