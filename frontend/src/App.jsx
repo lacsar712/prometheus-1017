@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
@@ -8,6 +9,7 @@ import { toast } from 'react-toastify'
 
 import DashboardScreen from './components/DashboardScreen'
 import FeedingScreen from './components/FeedingScreen'
+import TracePage from './components/trace/TracePage'
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -365,6 +367,17 @@ function ConsoleApp() {
 }
 
 function App() {
+    return (
+        <BrowserRouter>
+            <Routes>
+                <Route path="/trace/:batchNo" element={<TracePage />} />
+                <Route path="*" element={<ScreenRouter />} />
+            </Routes>
+        </BrowserRouter>
+    )
+}
+
+function ScreenRouter() {
     const params = useMemo(() => new URLSearchParams(window.location.search), []);
     const screen = params.get('screen');
 

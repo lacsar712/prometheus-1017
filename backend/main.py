@@ -1,6 +1,7 @@
 import logging
 import time
 import random
+import json
 import os
 import asyncio
 from datetime import datetime, timedelta
@@ -10,11 +11,14 @@ from collections import defaultdict
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Index
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Index
+from sqlalchemy.orm import Session, relationship
 from pydantic import BaseModel, Field
 import httpx
+
+from models.database import Base, engine, SessionLocal, get_db
+from models.honey_batch import HoneyBatch, BatchEvent
+from routers.trace import router as trace_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,11 +26,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@db:5432/prometheus_db")
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090")
 
@@ -184,6 +183,7 @@ def init_db():
             logger.info("Database tables created successfully.")
             _init_material_stocks()
             _init_hive_infos()
+            _init_honey_batches()
             break
         except Exception as e:
             logger.error(f"Database connection failed: {e}. Retrying in 5 seconds...")
@@ -239,6 +239,195 @@ def _init_hive_infos():
         db.close()
 
 
+HONEY_TYPES_MAP = {
+    "farm_001": [("洋槐蜜", "特级"), ("百花蜜", "一级")],
+    "farm_002": [("椴树蜜", "特级"), ("百花蜜", "二级")],
+    "farm_003": ("油菜花蜜", "一级"),
+    "farm_004": [("百花蜜", "特级"), ("洋槐蜜", "二级")],
+    "farm_005": [("枣花蜜", "一级"), ("百花蜜", "二级")],
+    "farm_006": [("荔枝蜜", "特级"), ("荔枝蜜", "一级")],
+}
+
+QUALITY_TEMPLATES = {
+    "特级": {
+        "score_range": (92, 99),
+        "report": "本品经严格质量检测，各项指标均达到国家标准特级要求。水分含量≤18%，还原糖≥65%，淀粉酶活性≥8mL/(g·h)，无抗生素残留，无农药检出。色泽纯正，香气浓郁，口感细腻。",
+    },
+    "一级": {
+        "score_range": (82, 91),
+        "report": "本品质量检测合格，各项指标达到国家标准一级要求。水分含量≤20%，还原糖≥60%，淀粉酶活性≥4mL/(g·h)，无抗生素残留，无农药检出。品质优良，风味纯正。",
+    },
+    "二级": {
+        "score_range": (70, 81),
+        "report": "本品质量检测合格，各项指标达到国家标准二级要求。水分含量≤22%，还原糖≥55%，淀粉酶活性≥2mL/(g·h)，无抗生素残留，无农药检出。符合食用标准。",
+    },
+}
+
+EVENT_TEMPLATES = [
+    {
+        "event_type": "inspection",
+        "title": "蜂群巡检",
+        "icon": "clipboard-check",
+        "desc_templates": [
+            "对{farm}区域{area}的{count}个蜂箱完成例行巡检，蜂群状态良好，蜂王产卵正常。",
+            "巡检{farm}蜂场{area}区域，蜂群活跃度{level}，巢脾整洁度达标，未发现异常。",
+        ],
+    },
+    {
+        "event_type": "harvest",
+        "title": "采蜜作业",
+        "icon": "droplets",
+        "desc_templates": [
+            "在{farm}完成{honey_type}采蜜作业，本次采收{weight}kg，蜜脾封盖率{rate}%。",
+            "采蜜团队于{farm}执行{honey_type}采收，使用摇蜜机分离，蜂蜜经初滤后入罐暂存。",
+        ],
+    },
+    {
+        "event_type": "testing",
+        "title": "质量检测",
+        "icon": "flask-conical",
+        "desc_templates": [
+            "批次{batch_no}送检完成，检测项目：水分、还原糖、淀粉酶值、羟甲基糠醛、抗生素、农药残留。检测结果：{grade}级合格。",
+            "实验室对批次{batch_no}进行全项检测，波美度{baume}°Bé，各项指标符合{grade}级标准。",
+        ],
+    },
+    {
+        "event_type": "bottling",
+        "title": "灌装封口",
+        "icon": "package",
+        "desc_templates": [
+            "批次{batch_no}在洁净车间完成灌装，灌装规格{spec}，封口检测合格率{pass_rate}%。",
+            "批次{batch_no}灌装完成，全程10万级净化车间作业，每瓶均经金属检测与封口检验。",
+        ],
+    },
+    {
+        "event_type": "dispatch",
+        "title": "出库发货",
+        "icon": "truck",
+        "desc_templates": [
+            "批次{batch_no}已通过最终检验，从仓库发出，冷链运输至{destination}。",
+            "批次{batch_no}完成出库，物流单号{tracking}，预计{days}日送达。",
+        ],
+    },
+]
+
+
+def _init_honey_batches():
+    db = SessionLocal()
+    try:
+        existing_count = db.query(HoneyBatch).count()
+        if existing_count > 0:
+            return
+
+        now = datetime.now()
+        batch_idx = 1
+        for farm in BEE_FARMS:
+            farm_id = farm["id"]
+            types_list = HONEY_TYPES_MAP.get(farm_id, [("百花蜜", "一级")])
+            if isinstance(types_list, tuple):
+                types_list = [types_list]
+
+            for honey_type, grade in types_list:
+                for offset_days in range(0, 90, 30):
+                    harvest_date = now - timedelta(days=offset_days + _seeded_random(f"{farm_id}_{honey_type}_{offset_days}").randint(1, 28))
+                    rnd = _seeded_random(f"{farm_id}_{honey_type}_{offset_days}")
+                    net_weight = round(rnd.uniform(25, 250), 1)
+                    batch_no = f"B{harvest_date.strftime('%Y%m%d')}{batch_idx:03d}"
+                    batch_idx += 1
+
+                    qt = QUALITY_TEMPLATES.get(grade, QUALITY_TEMPLATES["二级"])
+                    quality_score = round(rnd.uniform(*qt["score_range"]), 1)
+                    quality_report = qt["report"]
+
+                    statuses = ["生产中", "已检测", "已灌装", "已出库"]
+                    status_idx = min(3, offset_days // 20)
+                    status = statuses[status_idx]
+
+                    batch = HoneyBatch(
+                        batch_no=batch_no,
+                        farm_id=farm_id,
+                        harvest_date=harvest_date,
+                        net_weight=net_weight,
+                        honey_type=honey_type,
+                        grade=grade,
+                        status=status,
+                        apiary_name=farm["name"],
+                        apiary_location=farm["location"],
+                        apiary_lat=farm["lat"],
+                        apiary_lng=farm["lng"],
+                        quality_score=quality_score,
+                        quality_report=quality_report,
+                    )
+                    db.add(batch)
+                    db.flush()
+
+                    event_date = harvest_date
+                    for evt_tpl in EVENT_TEMPLATES:
+                        event_rnd = _seeded_random(f"evt_{batch_no}_{evt_tpl['event_type']}")
+                        event_date = event_date + timedelta(hours=event_rnd.randint(12, 72))
+                        if event_date > now and evt_tpl["event_type"] == "dispatch":
+                            break
+
+                        tpl = event_rnd.choice(evt_tpl["desc_templates"])
+                        operator_rnd = _seeded_random(f"op_{farm_id}")
+                        keepers = [k for k in BEEKEEPERS if k["farm_id"] == farm_id]
+                        operator = keepers[event_rnd.randint(0, len(keepers) - 1)]["name"] if keepers else "系统"
+
+                        desc = tpl.format(
+                            farm=farm["name"],
+                            area=f"区域{chr(65 + event_rnd.randint(0, 5))}",
+                            count=event_rnd.randint(30, 80),
+                            level=event_rnd.choice(["良好", "正常", "偏弱"]),
+                            honey_type=honey_type,
+                            weight=round(event_rnd.uniform(50, 200), 1),
+                            rate=event_rnd.randint(85, 99),
+                            batch_no=batch_no,
+                            grade=grade,
+                            baume=event_rnd.randint(41, 43),
+                            spec=event_rnd.choice(["500g/瓶", "250g/瓶", "1kg/罐"]),
+                            pass_rate=event_rnd.randint(98, 100),
+                            destination=event_rnd.choice(["华东配送中心", "北京仓库", "上海分仓", "广州仓库"]),
+                            tracking=f"SF{event_rnd.randint(1000000000, 9999999999)}",
+                            days=event_rnd.randint(2, 5),
+                        )
+
+                        details = None
+                        if evt_tpl["event_type"] == "testing":
+                            details = json.dumps({
+                                "moisture": f"{round(event_rnd.uniform(15, 20), 1)}%",
+                                "reducing_sugar": f"{round(event_rnd.uniform(60, 72), 1)}%",
+                                "diastase": f"{round(event_rnd.uniform(4, 15), 1)} mL/(g·h)",
+                                "hmf": f"{round(event_rnd.uniform(2, 15), 1)} mg/kg",
+                            }, ensure_ascii=False)
+                        elif evt_tpl["event_type"] == "harvest":
+                            details = json.dumps({
+                                "hive_count": event_rnd.randint(40, 120),
+                                "method": "摇蜜机分离",
+                                "filter": "80目初滤",
+                            }, ensure_ascii=False)
+
+                        event = BatchEvent(
+                            batch_no=batch_no,
+                            event_type=evt_tpl["event_type"],
+                            event_time=event_date,
+                            title=evt_tpl["title"],
+                            description=desc,
+                            operator=operator,
+                            location=farm["location"],
+                            icon=evt_tpl["icon"],
+                            details=details,
+                        )
+                        db.add(event)
+
+        db.commit()
+        logger.info("Honey batches and events initialized.")
+    except Exception as e:
+        logger.error(f"Failed to init honey batches: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 app = FastAPI(title="FastAPI Prometheus Demo - 蜂场监控大屏")
 
 app.add_middleware(
@@ -250,14 +439,6 @@ app.add_middleware(
 )
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 instrumentator = Instrumentator(
     should_group_status_codes=False,
     should_ignore_untemplated=True,
@@ -266,6 +447,8 @@ instrumentator = Instrumentator(
     env_var_name="ENABLE_METRICS",
 )
 instrumentator.instrument(app).expose(app)
+
+app.include_router(trace_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},
