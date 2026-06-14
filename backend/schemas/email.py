@@ -124,3 +124,21 @@ class MonthlyReportData(BaseModel):
     top_honey_types: List[Dict[str, Any]]
     alerts_summary: List[Dict[str, Any]]
     report_generated_at: str
+
+
+class FarmRecipientCreate(BaseModel):
+    farm_id: str = Field(..., description="蜂场ID")
+    farm_name: str = Field(..., description="蜂场名称")
+    recipient_name: str = Field(..., description="收件人姓名")
+    recipient_email: str = Field(..., description="收件人邮箱")
+    role: str = Field("owner", description="角色：owner/manager/staff")
+    created_by: Optional[str] = Field("admin", description="创建人")
+
+
+class FarmRecipientUpdate(BaseModel):
+    farm_name: Optional[str] = None
+    recipient_name: Optional[str] = None
+    recipient_email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    updated_by: Optional[str] = Field("admin", description="更新人")

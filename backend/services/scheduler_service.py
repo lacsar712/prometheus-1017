@@ -4,7 +4,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from models.database import SessionLocal
-from services.email_service import send_monthly_report, logger as email_logger
+from services.email_service import send_monthly_report, get_farm_recipient_emails, logger as email_logger
 
 logger = logging.getLogger(__name__)
 
@@ -19,22 +19,16 @@ BEE_FARMS = [
     {"id": "farm_006", "name": "闽南荔枝蜜场"},
 ]
 
-FARM_OWNER_EMAILS = {
-    "farm_001": ["owner_farm001@apiary.local", "manager_farm001@apiary.local"],
-    "farm_002": ["owner_farm002@apiary.local"],
-    "farm_003": ["owner_farm003@apiary.local", "manager_farm003@apiary.local"],
-    "farm_004": ["owner_farm004@apiary.local"],
-    "farm_005": ["owner_farm005@apiary.local"],
-    "farm_006": ["owner_farm006@apiary.local", "manager_farm006@apiary.local"],
-}
-
 
 def monthly_report_job():
     logger.info("Starting monthly report email job...")
     db = SessionLocal()
     try:
         for farm in BEE_FARMS:
-            recipients = FARM_OWNER_EMAILS.get(farm["id"], [f"owner_{farm['id']}@apiary.local"])
+            recipients = get_farm_recipient_emails(db, farm["id"])
+            if not recipients:
+                logger.warning(f"No active recipients configured for {farm['name']} ({farm['id']}), skipping.")
+                continue
             try:
                 result = send_monthly_report(db, farm["id"], farm["name"], recipients)
                 logger.info(f"Monthly report for {farm['name']}: {result['status']} (log_id={result.get('log_id')})")

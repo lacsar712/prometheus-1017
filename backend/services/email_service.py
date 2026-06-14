@@ -11,7 +11,7 @@ import json
 from jinja2 import Template, Environment, BaseLoader, select_autoescape
 from sqlalchemy.orm import Session
 
-from models.email import EmailTemplate, EmailSendLog
+from models.email import EmailTemplate, EmailSendLog, FarmRecipient
 from schemas.email import (
     EmailTemplateCreate,
     EmailTemplateUpdate,
@@ -803,3 +803,130 @@ def send_monthly_report(db: Session, farm_id: str, farm_name: str, recipients: L
         created_by="scheduler",
         send_type="scheduled",
     )
+
+
+def _recipient_to_dict(r: FarmRecipient) -> Dict[str, Any]:
+    return {
+        "id": r.id,
+        "farm_id": r.farm_id,
+        "farm_name": r.farm_name,
+        "recipient_name": r.recipient_name,
+        "recipient_email": r.recipient_email,
+        "role": r.role,
+        "is_active": r.is_active,
+        "created_by": r.created_by,
+        "updated_by": r.updated_by,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+INITIAL_FARM_RECIPIENTS = [
+    {"farm_id": "farm_001", "farm_name": "秦岭一号蜂场", "recipient_name": "张场主", "recipient_email": "owner_farm001@apiary.local", "role": "owner"},
+    {"farm_id": "farm_001", "farm_name": "秦岭一号蜂场", "recipient_name": "李经理", "recipient_email": "manager_farm001@apiary.local", "role": "manager"},
+    {"farm_id": "farm_002", "farm_name": "长白山蜜源基地", "recipient_name": "王场主", "recipient_email": "owner_farm002@apiary.local", "role": "owner"},
+    {"farm_id": "farm_003", "farm_name": "云贵高原蜂场", "recipient_name": "刘场主", "recipient_email": "owner_farm003@apiary.local", "role": "owner"},
+    {"farm_id": "farm_003", "farm_name": "云贵高原蜂场", "recipient_name": "陈经理", "recipient_email": "manager_farm003@apiary.local", "role": "manager"},
+    {"farm_id": "farm_004", "farm_name": "江南水乡蜂场", "recipient_name": "周场主", "recipient_email": "owner_farm004@apiary.local", "role": "owner"},
+    {"farm_id": "farm_005", "farm_name": "黄土高原蜂场", "recipient_name": "郑场主", "recipient_email": "owner_farm005@apiary.local", "role": "owner"},
+    {"farm_id": "farm_006", "farm_name": "闽南荔枝蜜场", "recipient_name": "何场主", "recipient_email": "owner_farm006@apiary.local", "role": "owner"},
+    {"farm_id": "farm_006", "farm_name": "闽南荔枝蜜场", "recipient_name": "林经理", "recipient_email": "manager_farm006@apiary.local", "role": "manager"},
+]
+
+
+def init_farm_recipients(db: Session) -> None:
+    for data in INITIAL_FARM_RECIPIENTS:
+        existing = db.query(FarmRecipient).filter(
+            FarmRecipient.farm_id == data["farm_id"],
+            FarmRecipient.recipient_email == data["recipient_email"],
+        ).first()
+        if existing:
+            continue
+        r = FarmRecipient(
+            farm_id=data["farm_id"],
+            farm_name=data["farm_name"],
+            recipient_name=data["recipient_name"],
+            recipient_email=data["recipient_email"],
+            role=data.get("role", "owner"),
+            is_active=True,
+            created_by="system",
+            updated_by="system",
+        )
+        db.add(r)
+    db.commit()
+    logger.info(f"Initialized {len(INITIAL_FARM_RECIPIENTS)} farm recipients.")
+
+
+def list_farm_recipients(db: Session, farm_id: Optional[str] = None, role: Optional[str] = None) -> Dict[str, Any]:
+    query = db.query(FarmRecipient)
+    if farm_id:
+        query = query.filter(FarmRecipient.farm_id == farm_id)
+    if role:
+        query = query.filter(FarmRecipient.role == role)
+    recipients = query.order_by(FarmRecipient.farm_id, FarmRecipient.role).all()
+    return {
+        "total": len(recipients),
+        "recipients": [_recipient_to_dict(r) for r in recipients],
+    }
+
+
+def get_farm_recipient(db: Session, recipient_id: int) -> Optional[Dict[str, Any]]:
+    r = db.query(FarmRecipient).filter(FarmRecipient.id == recipient_id).first()
+    if not r:
+        return None
+    return _recipient_to_dict(r)
+
+
+def create_farm_recipient(db: Session, farm_id: str, farm_name: str, recipient_name: str,
+                          recipient_email: str, role: str = "owner", created_by: str = "admin") -> Dict[str, Any]:
+    existing = db.query(FarmRecipient).filter(
+        FarmRecipient.farm_id == farm_id,
+        FarmRecipient.recipient_email == recipient_email,
+    ).first()
+    if existing:
+        raise ValueError(f"Recipient {recipient_email} already exists for farm {farm_id}")
+
+    r = FarmRecipient(
+        farm_id=farm_id,
+        farm_name=farm_name,
+        recipient_name=recipient_name,
+        recipient_email=recipient_email,
+        role=role,
+        is_active=True,
+        created_by=created_by,
+        updated_by=created_by,
+    )
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return _recipient_to_dict(r)
+
+
+def update_farm_recipient(db: Session, recipient_id: int, **kwargs) -> Optional[Dict[str, Any]]:
+    r = db.query(FarmRecipient).filter(FarmRecipient.id == recipient_id).first()
+    if not r:
+        return None
+    for key, value in kwargs.items():
+        if hasattr(r, key) and value is not None:
+            setattr(r, key, value)
+    r.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(r)
+    return _recipient_to_dict(r)
+
+
+def delete_farm_recipient(db: Session, recipient_id: int) -> bool:
+    r = db.query(FarmRecipient).filter(FarmRecipient.id == recipient_id).first()
+    if not r:
+        return False
+    db.delete(r)
+    db.commit()
+    return True
+
+
+def get_farm_recipient_emails(db: Session, farm_id: str) -> List[str]:
+    recipients = db.query(FarmRecipient).filter(
+        FarmRecipient.farm_id == farm_id,
+        FarmRecipient.is_active == True,
+    ).all()
+    return [r.recipient_email for r in recipients]

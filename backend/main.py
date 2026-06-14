@@ -47,7 +47,7 @@ from services.weather_service import (
     generate_alert_actions,
     ALERT_TYPE_META,
 )
-from services.email_service import init_email_templates
+from services.email_service import init_email_templates, init_farm_recipients
 from services.scheduler_service import start_scheduler, stop_scheduler
 
 logging.basicConfig(
@@ -265,6 +265,7 @@ def init_db():
                 init_i18n_resources(db)
                 init_term_dictionary(db)
                 init_email_templates(db)
+                init_farm_recipients(db)
             finally:
                 db.close()
             break
@@ -1918,6 +1919,8 @@ async def get_weather_farm_detail(
     cache_key = f"weather_detail_{farm_id}_{days}_{now.strftime('%Y%m%d%H')}"
     cached = _get_cached_weather(cache_key)
     if cached:
+        cached_alerts = cached.get("alerts", [])
+        _merge_action_states(db, farm_id, cached_alerts)
         return cached
 
     hourly = generate_hourly_forecast(farm_id, farm["lat"], farm["lng"], days=days)
@@ -1969,6 +1972,11 @@ async def get_weather_alerts_timeline(
     cache_key = f"weather_alerts_{farm_id}_{days}_{now.strftime('%Y%m%d%H')}"
     cached = _get_cached_weather(cache_key)
     if cached:
+        cached_alerts = cached.get("alerts", [])
+        _merge_action_states(db, farm_id, cached_alerts)
+        for alert in cached_alerts:
+            alert["actions_total"] = len(alert.get("actions", []))
+            alert["actions_completed"] = sum(1 for a in alert.get("actions", []) if a.get("is_completed"))
         return cached
 
     hourly = generate_hourly_forecast(farm_id, farm["lat"], farm["lng"], days=days)

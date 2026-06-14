@@ -19,6 +19,11 @@ from services.email_service import (
     render_template,
     send_monthly_report,
     generate_monthly_report_data,
+    list_farm_recipients,
+    get_farm_recipient,
+    create_farm_recipient,
+    update_farm_recipient,
+    delete_farm_recipient,
 )
 from schemas.email import (
     EmailTemplateCreate,
@@ -30,6 +35,8 @@ from schemas.email import (
     TemplatePreviewRequest,
     TemplatePreviewResponse,
     EmailTemplateItem,
+    FarmRecipientCreate,
+    FarmRecipientUpdate,
 )
 
 router = APIRouter(prefix="/api/email", tags=["email"])
@@ -260,3 +267,60 @@ async def preview_monthly_report(
 ):
     report_data = generate_monthly_report_data(farm_id, farm_name)
     return {"status": "success", "data": report_data.model_dump()}
+
+
+@router.get("/recipients")
+async def get_recipients(
+    farm_id: Optional[str] = Query(None, description="按蜂场ID过滤"),
+    role: Optional[str] = Query(None, description="按角色过滤：owner/manager/staff"),
+    db: Session = Depends(get_db),
+):
+    return list_farm_recipients(db, farm_id=farm_id, role=role)
+
+
+@router.get("/recipients/{recipient_id}")
+async def get_single_recipient(recipient_id: int, db: Session = Depends(get_db)):
+    r = get_farm_recipient(db, recipient_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    return r
+
+
+@router.post("/recipients")
+async def create_new_recipient(data: FarmRecipientCreate, db: Session = Depends(get_db)):
+    try:
+        r = create_farm_recipient(
+            db,
+            farm_id=data.farm_id,
+            farm_name=data.farm_name,
+            recipient_name=data.recipient_name,
+            recipient_email=data.recipient_email,
+            role=data.role,
+            created_by=data.created_by or "admin",
+        )
+        return {"status": "success", "recipient": r}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/recipients/{recipient_id}")
+async def update_existing_recipient(
+    recipient_id: int,
+    data: FarmRecipientUpdate,
+    db: Session = Depends(get_db),
+):
+    update_data = data.model_dump(exclude_none=True)
+    updated_by = update_data.pop("updated_by", "admin")
+    update_data["updated_by"] = updated_by
+    r = update_farm_recipient(db, recipient_id, **update_data)
+    if not r:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    return {"status": "success", "recipient": r}
+
+
+@router.delete("/recipients/{recipient_id}")
+async def remove_recipient(recipient_id: int, db: Session = Depends(get_db)):
+    deleted = delete_farm_recipient(db, recipient_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    return {"status": "success", "message": "Recipient deleted"}

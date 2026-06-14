@@ -4,7 +4,7 @@ import {
     Mail, FileText, Plus, Trash2, Save, Send, Eye, Code,
     ChevronRight, RefreshCw, Search, Filter, AlertCircle,
     CheckCircle, XCircle, Clock, Variable, ExternalLink,
-    LayoutTemplate
+    LayoutTemplate, Users, MapPin, Edit3, X, UserPlus
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
@@ -42,6 +42,13 @@ export default function EmailCenterPage() {
     const [showTestEmailModal, setShowTestEmailModal] = useState(false)
     const [testEmail, setTestEmail] = useState('test@apiary.local')
     const [logsLoading, setLogsLoading] = useState(false)
+    const [activeTab, setActiveTab] = useState('templates')
+    const [recipients, setRecipients] = useState([])
+    const [recipientsLoading, setRecipientsLoading] = useState(false)
+    const [recipientFarmFilter, setRecipientFarmFilter] = useState('')
+    const [showAddRecipientModal, setShowAddRecipientModal] = useState(false)
+    const [newRecipient, setNewRecipient] = useState({ farm_id: 'farm_001', farm_name: '秦岭一号蜂场', recipient_name: '', recipient_email: '', role: 'owner' })
+    const [editingRecipientId, setEditingRecipientId] = useState(null)
     const editorRef = useRef(null)
 
     const fetchTemplates = async () => {
@@ -160,6 +167,88 @@ export default function EmailCenterPage() {
     useEffect(() => {
         fetchLogs()
     }, [logsPage, logsStatusFilter])
+
+    const fetchRecipients = async () => {
+        try {
+            setRecipientsLoading(true)
+            const params = {}
+            if (recipientFarmFilter) params.farm_id = recipientFarmFilter
+            const response = await axios.get(`${API_BASE_URL}/api/email/recipients`, { params })
+            setRecipients(response.data.recipients || [])
+        } catch (error) {
+            console.error('Failed to fetch recipients:', error)
+            toast.error('加载收件人列表失败')
+        } finally {
+            setRecipientsLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        if (activeTab === 'recipients') fetchRecipients()
+    }, [activeTab, recipientFarmFilter])
+
+    const handleAddRecipient = async () => {
+        try {
+            await axios.post(`${API_BASE_URL}/api/email/recipients`, newRecipient)
+            toast.success('收件人添加成功')
+            setShowAddRecipientModal(false)
+            setNewRecipient({ farm_id: 'farm_001', farm_name: '秦岭一号蜂场', recipient_name: '', recipient_email: '', role: 'owner' })
+            await fetchRecipients()
+        } catch (error) {
+            toast.error(`添加失败：${error.response?.data?.detail || error.message}`)
+        }
+    }
+
+    const handleUpdateRecipient = async (id, data) => {
+        try {
+            await axios.put(`${API_BASE_URL}/api/email/recipients/${id}`, data)
+            toast.success('收件人更新成功')
+            setEditingRecipientId(null)
+            await fetchRecipients()
+        } catch (error) {
+            toast.error(`更新失败：${error.response?.data?.detail || error.message}`)
+        }
+    }
+
+    const handleDeleteRecipient = async (id, name) => {
+        if (!confirm(`确定删除收件人「${name}」吗？`)) return
+        try {
+            await axios.delete(`${API_BASE_URL}/api/email/recipients/${id}`)
+            toast.success('收件人已删除')
+            await fetchRecipients()
+        } catch (error) {
+            toast.error(`删除失败：${error.response?.data?.detail || error.message}`)
+        }
+    }
+
+    const handleToggleRecipientActive = async (recipient) => {
+        await handleUpdateRecipient(recipient.id, { is_active: !recipient.is_active })
+    }
+
+    const BEE_FARM_OPTIONS = [
+        { id: 'farm_001', name: '秦岭一号蜂场' },
+        { id: 'farm_002', name: '长白山蜜源基地' },
+        { id: 'farm_003', name: '云贵高原蜂场' },
+        { id: 'farm_004', name: '江南水乡蜂场' },
+        { id: 'farm_005', name: '黄土高原蜂场' },
+        { id: 'farm_006', name: '闽南荔枝蜜场' },
+    ]
+
+    const ROLE_LABELS = {
+        owner: { label: '场主', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+        manager: { label: '经理', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+        staff: { label: '员工', color: 'bg-slate-500/20 text-slate-400 border-slate-500/30' },
+    }
+
+    const groupedRecipients = useMemo(() => {
+        const groups = {}
+        recipients.forEach(r => {
+            const key = r.farm_id
+            if (!groups[key]) groups[key] = { farm_id: r.farm_id, farm_name: r.farm_name, recipients: [] }
+            groups[key].recipients.push(r)
+        })
+        return Object.values(groups)
+    }, [recipients])
 
     const handleEditorChange = (field, value) => {
         const newData = { ...editData, [field]: value }
@@ -295,7 +384,7 @@ export default function EmailCenterPage() {
                         </div>
                         <div>
                             <h1 className="text-xl font-bold tracking-tight">邮件中心</h1>
-                            <p className="text-slate-400 text-xs">模板管理 · 邮件发送 · 发送日志</p>
+                            <p className="text-slate-400 text-xs">模板管理 · 收件人配置 · 邮件发送 · 发送日志</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -306,25 +395,234 @@ export default function EmailCenterPage() {
                             <ExternalLink className="w-4 h-4" />
                             收件箱 (MailHog)
                         </button>
-                        <button
-                            onClick={handleCreateTemplate}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 rounded-lg text-sm font-medium transition-all shadow-lg shadow-indigo-500/20"
-                        >
-                            <Plus className="w-4 h-4" />
-                            新建模板
-                        </button>
-                        <button
-                            onClick={() => setShowTestEmailModal(true)}
-                            disabled={!selectedTemplate}
-                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:from-slate-600 disabled:to-slate-700 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-all shadow-lg shadow-emerald-500/20"
-                        >
-                            <Send className="w-4 h-4" />
-                            发送测试邮件
-                        </button>
                     </div>
+                </div>
+                <div className="flex items-center gap-1 mt-3 -mb-1">
+                    <button
+                        onClick={() => setActiveTab('templates')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
+                            activeTab === 'templates'
+                                ? 'bg-slate-800 text-white border border-slate-700 border-b-slate-800'
+                                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        }`}
+                    >
+                        <LayoutTemplate className="w-4 h-4" />
+                        模板管理
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('recipients')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
+                            activeTab === 'recipients'
+                                ? 'bg-slate-800 text-white border border-slate-700 border-b-slate-800'
+                                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        }`}
+                    >
+                        <Users className="w-4 h-4" />
+                        场主邮箱配置
+                    </button>
                 </div>
             </header>
 
+            {activeTab === 'recipients' ? (
+                <div className="flex-1 overflow-y-auto bg-slate-900 p-6">
+                    <div className="max-w-5xl mx-auto">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 className="text-lg font-semibold flex items-center gap-2">
+                                    <Users className="w-5 h-5 text-indigo-400" />
+                                    场主邮箱配置
+                                </h2>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    管理各蜂场的月度报表收件人。每月1日系统将自动向各场主邮箱发送经营报表。
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <select
+                                    value={recipientFarmFilter}
+                                    onChange={(e) => setRecipientFarmFilter(e.target.value)}
+                                    className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:border-indigo-500 outline-none"
+                                >
+                                    <option value="">全部蜂场</option>
+                                    {BEE_FARM_OPTIONS.map(f => (
+                                        <option key={f.id} value={f.id}>{f.name}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={() => setShowAddRecipientModal(true)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 rounded-lg text-sm font-medium transition-all shadow-lg shadow-indigo-500/20"
+                                >
+                                    <UserPlus className="w-4 h-4" />
+                                    添加收件人
+                                </button>
+                            </div>
+                        </div>
+
+                        {recipientsLoading ? (
+                            <div className="text-center py-12">
+                                <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full mx-auto"></div>
+                                <p className="text-slate-400 text-sm mt-3">加载中...</p>
+                            </div>
+                        ) : recipients.length === 0 ? (
+                            <div className="text-center py-12">
+                                <Users className="w-12 h-12 text-slate-700 mx-auto mb-3" />
+                                <p className="text-slate-400">暂无收件人配置</p>
+                                <p className="text-xs text-slate-500 mt-1">点击「添加收件人」为蜂场配置邮箱</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {groupedRecipients.map(group => (
+                                    <div key={group.farm_id} className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+                                        <div className="px-5 py-3 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <MapPin className="w-4 h-4 text-amber-400" />
+                                                <span className="font-semibold text-sm">{group.farm_name}</span>
+                                                <span className="text-xs text-slate-500 font-mono">{group.farm_id}</span>
+                                            </div>
+                                            <span className="text-xs text-slate-500">{group.recipients.length} 位收件人</span>
+                                        </div>
+                                        <div className="divide-y divide-slate-700/50">
+                                            {group.recipients.map(r => {
+                                                const roleInfo = ROLE_LABELS[r.role] || ROLE_LABELS.staff
+                                                return (
+                                                    <div key={r.id} className="px-5 py-3 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
+                                                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                                r.role === 'owner' ? 'bg-amber-500/20 text-amber-400' :
+                                                                r.role === 'manager' ? 'bg-blue-500/20 text-blue-400' :
+                                                                'bg-slate-600/30 text-slate-400'
+                                                            }`}>
+                                                                {r.recipient_name.charAt(0)}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className={`text-sm font-medium ${r.is_active ? 'text-slate-200' : 'text-slate-500 line-through'}`}>
+                                                                        {r.recipient_name}
+                                                                    </span>
+                                                                    <span className={`text-[10px] px-2 py-0.5 rounded border ${roleInfo.color}`}>
+                                                                        {roleInfo.label}
+                                                                    </span>
+                                                                    {!r.is_active && (
+                                                                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-700 text-slate-500">已停用</span>
+                                                                    )}
+                                                                </div>
+                                                                <span className={`text-xs font-mono ${r.is_active ? 'text-slate-400' : 'text-slate-600'}`}>
+                                                                    {r.recipient_email}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => handleToggleRecipientActive(r)}
+                                                                className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+                                                                    r.is_active
+                                                                        ? 'border-slate-600 text-slate-400 hover:bg-slate-700'
+                                                                        : 'border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10'
+                                                                }`}
+                                                            >
+                                                                {r.is_active ? '停用' : '启用'}
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteRecipient(r.id, r.recipient_name)}
+                                                                className="p-1.5 hover:bg-rose-500/10 rounded-lg text-rose-400 transition-colors"
+                                                                title="删除"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {showAddRecipientModal && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowAddRecipientModal(false)}>
+                            <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl border border-slate-700" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between mb-5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2.5 bg-indigo-500/20 rounded-xl">
+                                            <UserPlus className="w-5 h-5 text-indigo-400" />
+                                        </div>
+                                        <h3 className="text-lg font-semibold">添加收件人</h3>
+                                    </div>
+                                    <button onClick={() => setShowAddRecipientModal(false)} className="p-1.5 hover:bg-slate-700 rounded-lg">
+                                        <X className="w-4 h-4 text-slate-400" />
+                                    </button>
+                                </div>
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm text-slate-300 mb-1.5">所属蜂场</label>
+                                        <select
+                                            value={newRecipient.farm_id}
+                                            onChange={(e) => {
+                                                const farm = BEE_FARM_OPTIONS.find(f => f.id === e.target.value)
+                                                setNewRecipient({ ...newRecipient, farm_id: e.target.value, farm_name: farm?.name || '' })
+                                            }}
+                                            className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg focus:border-indigo-500 outline-none"
+                                        >
+                                            {BEE_FARM_OPTIONS.map(f => (
+                                                <option key={f.id} value={f.id}>{f.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-slate-300 mb-1.5">姓名</label>
+                                        <input
+                                            type="text"
+                                            value={newRecipient.recipient_name}
+                                            onChange={(e) => setNewRecipient({ ...newRecipient, recipient_name: e.target.value })}
+                                            placeholder="如：张场主"
+                                            className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg focus:border-indigo-500 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-slate-300 mb-1.5">邮箱</label>
+                                        <input
+                                            type="email"
+                                            value={newRecipient.recipient_email}
+                                            onChange={(e) => setNewRecipient({ ...newRecipient, recipient_email: e.target.value })}
+                                            placeholder="owner@apiary.local"
+                                            className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg focus:border-indigo-500 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-slate-300 mb-1.5">角色</label>
+                                        <select
+                                            value={newRecipient.role}
+                                            onChange={(e) => setNewRecipient({ ...newRecipient, role: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-lg focus:border-indigo-500 outline-none"
+                                        >
+                                            <option value="owner">场主</option>
+                                            <option value="manager">经理</option>
+                                            <option value="staff">员工</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-2 mt-6">
+                                    <button
+                                        onClick={() => setShowAddRecipientModal(false)}
+                                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors"
+                                    >
+                                        取消
+                                    </button>
+                                    <button
+                                        onClick={handleAddRecipient}
+                                        disabled={!newRecipient.recipient_name || !newRecipient.recipient_email}
+                                        className="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-60 rounded-lg text-sm font-medium transition-all"
+                                    >
+                                        添加
+                                        <UserPlus className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
             <div className="flex-1 flex overflow-hidden">
                 <aside className="w-72 border-r border-slate-700 bg-slate-900/50 flex flex-col">
                     <div className="p-4 border-b border-slate-700 space-y-3">
@@ -404,8 +702,15 @@ export default function EmailCenterPage() {
                         )}
                     </div>
 
-                    <div className="p-3 border-t border-slate-700 text-xs text-slate-500">
-                        共 {templates.length} 个模板
+                    <div className="p-3 border-t border-slate-700 flex items-center justify-between">
+                        <span className="text-xs text-slate-500">共 {templates.length} 个模板</span>
+                        <button
+                            onClick={handleCreateTemplate}
+                            className="flex items-center gap-1 px-2.5 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 rounded-lg text-xs font-medium transition-all"
+                        >
+                            <Plus className="w-3 h-3" />
+                            新建
+                        </button>
                     </div>
                 </aside>
 
@@ -504,6 +809,14 @@ export default function EmailCenterPage() {
                                             删除
                                         </button>
                                     )}
+                                    <button
+                                        onClick={() => setShowTestEmailModal(true)}
+                                        disabled={!selectedTemplate}
+                                        className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg text-xs font-medium transition-all shadow shadow-emerald-500/20"
+                                    >
+                                        <Send className="w-3.5 h-3.5" />
+                                        测试邮件
+                                    </button>
                                 </div>
                             </div>
 
@@ -703,6 +1016,7 @@ export default function EmailCenterPage() {
                     </div>
                 </main>
             </div>
+            )}
 
             {showTestEmailModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setShowTestEmailModal(false)}>

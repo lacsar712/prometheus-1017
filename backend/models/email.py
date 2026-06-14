@@ -50,3 +50,23 @@ class EmailSendLog(Base):
     __table_args__ = (
         Index("idx_email_log_status_time", "status", "created_at"),
     )
+
+
+class FarmRecipient(Base):
+    __tablename__ = "farm_recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(String, index=True, nullable=False)
+    farm_name = Column(String, nullable=False)
+    recipient_name = Column(String, nullable=False)
+    recipient_email = Column(String, nullable=False)
+    role = Column(String, default="owner", nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_by = Column(String, default="system", nullable=False)
+    updated_by = Column(String, default="system", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("idx_farm_recipient_farm_email", "farm_id", "recipient_email", unique=True),
+    )

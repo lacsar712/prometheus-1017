@@ -538,6 +538,7 @@ function WeatherScreen() {
                 { is_completed: newCompleted, completed_by: '当前用户' }
             );
             toast.success(newCompleted ? '已标记为完成' : '已取消完成');
+            fetchFarmDetail(selectedFarmId);
         } catch (err) {
             console.error('更新状态失败:', err);
             setDetailData(prev => {
