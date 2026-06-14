@@ -26,12 +26,17 @@ services:
       DATABASE_URL: postgresql://user:password@db:5432/prometheus_db
       ENABLE_METRICS: "true"
       PROMETHEUS_URL: http://prometheus:9090
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      EMAIL_SENDER: apiary@prometheus.local
       TZ: Asia/Shanghai
     ports:
       - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     restart: always
 
   frontend:
@@ -54,6 +59,16 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
+    restart: always
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: prometheus_mailhog
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "1025:1025"
+      - "8025:8025"
     restart: always
 
 volumes:

@@ -4,6 +4,7 @@ from .weather import WeatherForecast, WeatherAlert, AlertAction
 from .backup import BackupRecord
 from .queen_bee import QueenBee
 from .language_resource import LanguageResource, TermDictionary
+from .email import EmailTemplate, EmailSendLog
 
 __all__ = [
     "Base", "engine", "SessionLocal", "get_db",
@@ -11,5 +12,6 @@ __all__ = [
     "WeatherForecast", "WeatherAlert", "AlertAction",
     "BackupRecord",
     "QueenBee",
-    "LanguageResource", "TermDictionary"
+    "LanguageResource", "TermDictionary",
+    "EmailTemplate", "EmailSendLog"
 ]

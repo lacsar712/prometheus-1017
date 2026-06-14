@@ -29,6 +29,7 @@ from routers.queen_bee import router as queen_bee_router
 from routers.i18n import router as i18n_router
 from routers.pest_disease import router as pest_disease_router
 from routers.honey_inventory import router as honey_inventory_router
+from routers.email import router as email_router
 from services.i18n_service import (
     init_i18n_resources,
     init_term_dictionary,
@@ -43,6 +44,8 @@ from services.weather_service import (
     generate_alert_actions,
     ALERT_TYPE_META,
 )
+from services.email_service import init_email_templates
+from services.scheduler_service import start_scheduler, stop_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -241,6 +244,7 @@ def init_db():
             try:
                 init_i18n_resources(db)
                 init_term_dictionary(db)
+                init_email_templates(db)
             finally:
                 db.close()
             break
@@ -862,6 +866,7 @@ app.include_router(queen_bee_router)
 app.include_router(i18n_router)
 app.include_router(pest_disease_router)
 app.include_router(honey_inventory_router)
+app.include_router(email_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},
@@ -1198,7 +1203,14 @@ async def startup_event():
         load_term_dictionary(db)
     finally:
         db.close()
+    start_scheduler()
     logger.info("Application started.")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    stop_scheduler()
+    logger.info("Application shutdown.")
 
 
 @app.get("/")
