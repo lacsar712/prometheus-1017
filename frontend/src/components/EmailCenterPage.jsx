@@ -529,7 +529,7 @@ export default function EmailCenterPage() {
                                             >
                                                 <Variable className="w-3 h-3 opacity-60" />
                                                 {v.label || v.name || v}
-                                                <span className="text-slate-500">`{{${v.name || v}}}`</span>
+                                                <span className="text-slate-500">{`{{${v.name || v}}}`}</span>
                                             </button>
                                         ))}
                                     </div>
