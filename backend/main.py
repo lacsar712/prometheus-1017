@@ -18,6 +18,7 @@ import httpx
 
 from models.database import Base, engine, SessionLocal, get_db
 from models.honey_batch import HoneyBatch, BatchEvent
+from models.honey_inventory import HoneyInventory, HoneyStockFlow
 from models.weather import WeatherForecast, WeatherAlert, AlertAction
 from models.backup import BackupRecord
 from models.queen_bee import QueenBee
@@ -27,6 +28,7 @@ from routers.backup import router as backup_router
 from routers.queen_bee import router as queen_bee_router
 from routers.i18n import router as i18n_router
 from routers.pest_disease import router as pest_disease_router
+from routers.honey_inventory import router as honey_inventory_router
 from services.i18n_service import (
     init_i18n_resources,
     init_term_dictionary,
@@ -232,6 +234,7 @@ def init_db():
             _init_material_stocks()
             _init_hive_infos()
             _init_honey_batches()
+            _init_honey_inventory()
             _init_queen_bees()
             _init_pest_diseases()
             db = SessionLocal()
@@ -479,6 +482,104 @@ def _init_honey_batches():
         logger.info("Honey batches and events initialized.")
     except Exception as e:
         logger.error(f"Failed to init honey batches: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+def _init_honey_inventory():
+    db = SessionLocal()
+    try:
+        existing_count = db.query(HoneyInventory).count()
+        if existing_count > 0:
+            return
+
+        batches = db.query(HoneyBatch).all()
+        if not batches:
+            return
+
+        warehouses = ["主仓库", "华东分仓", "华北分仓", "华南分仓"]
+        specs = ["250g", "500g", "1kg"]
+        price_map = {"250g": 28.0, "500g": 48.0, "1kg": 88.0}
+        operators = ["张建国", "李秀梅", "王德才", "赵春燕", "刘志强", "系统"]
+        reasons_map = {
+            "inbound": ["采蜜入库", "灌装入库", "调拨入库", "退货入库"],
+            "outbound": ["销售出库", "调拨出库", "样品出库", "损耗出库"],
+        }
+
+        for batch in batches:
+            inv_rnd = _seeded_random(f"inv_{batch.batch_no}")
+            num_warehouses = inv_rnd.randint(1, 3)
+            selected_warehouses = inv_rnd.sample(warehouses, num_warehouses)
+
+            for wh in selected_warehouses:
+                num_specs = inv_rnd.randint(1, 3)
+                selected_specs = inv_rnd.sample(specs, num_specs)
+
+                for spec in selected_specs:
+                    quantity = inv_rnd.randint(5, 200)
+                    unit_price = price_map.get(spec, 48.0) + round(inv_rnd.uniform(-5, 15), 2)
+                    threshold = inv_rnd.choice([5, 10, 20])
+
+                    inv = HoneyInventory(
+                        batch_no=batch.batch_no,
+                        warehouse=wh,
+                        spec=spec,
+                        quantity=quantity,
+                        unit_price=unit_price,
+                        honey_type=batch.honey_type,
+                        grade=batch.grade,
+                        farm_id=batch.farm_id,
+                        low_stock_threshold=threshold,
+                    )
+                    db.add(inv)
+                    db.flush()
+
+                    flow = HoneyStockFlow(
+                        inventory_id=inv.id,
+                        batch_no=inv.batch_no,
+                        warehouse=wh,
+                        spec=spec,
+                        flow_type="inbound",
+                        change_quantity=quantity,
+                        quantity_before=0,
+                        quantity_after=quantity,
+                        operator="系统",
+                        reason="初始化库存",
+                    )
+                    db.add(flow)
+
+                    for _ in range(inv_rnd.randint(1, 4)):
+                        flow_rnd = _seeded_random(f"flow_{inv.id}_{_}")
+                        flow_type = flow_rnd.choice(["inbound", "outbound"])
+                        change = flow_rnd.randint(1, min(30, max(inv.quantity, 1)))
+                        qty_before = inv.quantity
+                        if flow_type == "outbound":
+                            change = -change
+                        qty_after = qty_before + change
+                        if qty_after < 0:
+                            change = -qty_before
+                            qty_after = 0
+
+                        inv.quantity = qty_after
+                        flow = HoneyStockFlow(
+                            inventory_id=inv.id,
+                            batch_no=inv.batch_no,
+                            warehouse=wh,
+                            spec=spec,
+                            flow_type=flow_type,
+                            change_quantity=change,
+                            quantity_before=qty_before,
+                            quantity_after=qty_after,
+                            operator=flow_rnd.choice(operators),
+                            reason=flow_rnd.choice(reasons_map[flow_type]),
+                        )
+                        db.add(flow)
+
+        db.commit()
+        logger.info("Honey inventory and stock flows initialized.")
+    except Exception as e:
+        logger.error(f"Failed to init honey inventory: {e}")
         db.rollback()
     finally:
         db.close()
@@ -760,6 +861,7 @@ app.include_router(backup_router)
 app.include_router(queen_bee_router)
 app.include_router(i18n_router)
 app.include_router(pest_disease_router)
+app.include_router(honey_inventory_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},
