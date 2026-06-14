@@ -301,6 +301,20 @@ export default function PestDiseasePage() {
     }, [fetchList]);
 
     useEffect(() => {
+        if (keyword.trim()) {
+            setExpandedCategories(prev => {
+                const next = { ...prev };
+                Object.entries(grouped).forEach(([cat, list]) => {
+                    if (list && list.length > 0) {
+                        next[cat] = true;
+                    }
+                });
+                return next;
+            });
+        }
+    }, [keyword, grouped]);
+
+    useEffect(() => {
         if (activeTab === 'diagnosis' && allSymptoms.length === 0) {
             fetchSymptoms();
         }

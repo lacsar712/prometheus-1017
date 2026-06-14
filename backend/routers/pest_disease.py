@@ -110,8 +110,6 @@ def get_all_symptoms(db: Session = Depends(get_db)):
 @router.post("/diagnose", summary="症状诊断：按相似度返回可能病害排行")
 def diagnose(data: DiagnosisRequest, db: Session = Depends(get_db)):
     input_set = set(s.strip() for s in data.symptoms if s.strip())
-    if not input_set:
-        raise HTTPException(status_code=400, detail="请至少输入一个症状标签")
 
     if data.extra_text:
         extra_kw_set = set()
@@ -120,6 +118,9 @@ def diagnose(data: DiagnosisRequest, db: Session = Depends(get_db)):
             if kw:
                 extra_kw_set.add(kw)
         input_set = input_set | extra_kw_set
+
+    if not input_set:
+        raise HTTPException(status_code=400, detail="请至少输入一个症状标签")
 
     items = db.query(PestDisease).all()
     results: List[DiagnosisResultItem] = []
