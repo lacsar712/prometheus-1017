@@ -979,18 +979,26 @@ def generate_farm_colony_distribution(farm_id: Optional[str] = None) -> Dict[str
 def generate_honey_progress(farm_id: Optional[str] = None) -> Dict[str, Any]:
     now = datetime.now()
     date_key = now.strftime("%Y%m%d")
-    hour_key = now.strftime("%H")
-    cache_key = f"honey_{farm_id or 'all'}_{date_key}_{hour_key}"
+    minute_key = now.strftime("%H%M")
+    cache_key = f"honey_{farm_id or 'all'}_{date_key}_{minute_key}"
 
     cached = get_cache(cache_key)
     if cached:
         return cached
 
     farms = _get_farm(farm_id)
-    hour_of_day = now.hour + now.minute / 60
+    current_hour = now.hour
+    minute_fraction = now.minute / 60.0
+    hour_of_day = current_hour + minute_fraction
     daily_progress = max(0.05, min(0.98, (hour_of_day - 6) / 14)) if 6 <= hour_of_day <= 20 else (
         0.05 if hour_of_day < 6 else 0.98
     )
+
+    last_display_hour = min(20, current_hour if hour_of_day >= 6 else 5)
+    if hour_of_day < 6:
+        display_hours = []
+    else:
+        display_hours = list(range(6, last_display_hour + 1))
 
     total_today_target = 0
     total_today_harvested = 0
@@ -1003,19 +1011,40 @@ def generate_honey_progress(farm_id: Optional[str] = None) -> Dict[str, Any]:
         today_harvested = round(today_target * daily_progress * rnd.uniform(0.88, 1.06), 1)
         cumulative = round(rnd.uniform(42000, 98000) + today_harvested, 1)
 
-        hourly_data = []
-        cum = 0
+        full_hour_rates = {}
         for h in range(6, 21):
-            hr = rnd.uniform(0.04, 0.10)
-            amt = round(today_target * hr, 1)
-            cum += amt
+            full_hour_rates[h] = rnd.uniform(0.04, 0.10)
+
+        hourly_data = []
+        sum_amount = 0.0
+        for h in display_hours:
+            full_amount = today_target * full_hour_rates[h]
+            if h == last_display_hour and hour_of_day >= 6:
+                amt = full_amount * minute_fraction
+            else:
+                amt = full_amount
+            amt = round(amt, 1)
+            sum_amount += amt
             hourly_data.append({
                 "hour": f"{h:02d}:00",
                 "amount": amt,
-                "cumulative": round(cum, 1),
+                "cumulative": round(sum_amount, 1),
             })
+
         if hourly_data:
-            hourly_data[-1]["cumulative"] = today_harvested
+            if sum_amount > 0:
+                scale = today_harvested / sum_amount
+                rescaled_sum = 0.0
+                for i, d in enumerate(hourly_data):
+                    if i < len(hourly_data) - 1:
+                        new_amt = round(d["amount"] * scale, 1)
+                    else:
+                        new_amt = round(today_harvested - rescaled_sum, 1)
+                    rescaled_sum += new_amt
+                    d["amount"] = new_amt
+                    d["cumulative"] = round(rescaled_sum, 1)
+            else:
+                hourly_data[-1]["cumulative"] = today_harvested
 
         total_today_target += today_target
         total_today_harvested += today_harvested

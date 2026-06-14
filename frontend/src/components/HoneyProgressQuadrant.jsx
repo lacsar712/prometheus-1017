@@ -17,7 +17,7 @@ function HoneyProgressQuadrant({ data }) {
     const cumulativeData = data.farm_details.length > 0
         ? data.farm_details.reduce((acc, farm) => {
             farm.hourly_data.forEach((h, i) => {
-                if (!acc[i]) acc[i] = { hour: h.hour, amount: 0, cumulative: 0 };
+                if (!acc[i]) acc[i] = { hour: h.hour, amount: 0 };
                 acc[i].amount += h.amount;
             });
             return acc;
@@ -26,14 +26,22 @@ function HoneyProgressQuadrant({ data }) {
 
     if (cumulativeData.length > 0) {
         let running = 0;
-        cumulativeData.forEach(d => {
+        cumulativeData.forEach((d, idx) => {
             running += d.amount;
-            d.cumulative = running;
+            if (idx === cumulativeData.length - 1) {
+                d.cumulative = data.today_harvested;
+            } else {
+                d.cumulative = round1(running);
+            }
         });
     }
 
+    function round1(n) {
+        return Math.round(n * 10) / 10;
+    }
+
     const maxAmount = Math.max(...(cumulativeData.map(d => d.amount).concat([1])));
-    const maxCumulative = Math.max(...(cumulativeData.map(d => d.cumulative).concat([1])));
+    const maxCumulative = Math.max(data.today_harvested, 1);
 
     return (
         <div className="dashboard-card h-full flex flex-col scan-overlay">
