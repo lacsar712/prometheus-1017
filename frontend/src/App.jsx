@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
     Terminal, Server, Layout, Monitor, ChevronRight, Droplets,
-    CloudSun
+    CloudSun, Crown
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
@@ -13,6 +13,7 @@ import FeedingScreen from './components/FeedingScreen'
 import WeatherScreen from './components/WeatherScreen'
 import TracePage from './components/trace/TracePage'
 import BackupScreen from './components/BackupScreen'
+import QueenBeePage from './components/QueenBeePage'
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -225,6 +226,37 @@ function ConsoleApp() {
                             </div>
                         </div>
                     </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-violet-500/10 via-purple-400/5 to-transparent border border-violet-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-violet-500/15 border border-violet-500/30 flex-shrink-0">
+                                <Crown className="w-6 h-6 text-violet-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-violet-200 mb-1">女王蜂血统家谱树 · 已上线</h3>
+                                <p className="text-sm text-violet-200/70 leading-relaxed mb-3">
+                                    记录优质女王蜂的血统传承与产卵质量演变。支持多代家谱向上追溯、蜂种过滤与编号搜索，
+                                    内置循环引用检测与父代蜂种合法性校验。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'queen-bee');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-violet-500/20 border border-violet-500/40 text-violet-300 text-xs font-medium hover:bg-violet-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <Crown className="w-3.5 h-3.5" />
+                                        查看家谱
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-violet-300/90 text-xs border border-violet-500/20 font-mono">
+                                        ?screen=queen-bee
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -429,6 +461,10 @@ function ScreenRouter() {
 
     if (screen === 'backup') {
         return <BackupScreen />;
+    }
+
+    if (screen === 'queen-bee') {
+        return <QueenBeePage />;
     }
 
     return <ConsoleApp />;

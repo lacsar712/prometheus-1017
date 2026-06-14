@@ -20,8 +20,10 @@ from models.database import Base, engine, SessionLocal, get_db
 from models.honey_batch import HoneyBatch, BatchEvent
 from models.weather import WeatherForecast, WeatherAlert, AlertAction
 from models.backup import BackupRecord
+from models.queen_bee import QueenBee
 from routers.trace import router as trace_router
 from routers.backup import router as backup_router
+from routers.queen_bee import router as queen_bee_router
 from services.weather_service import (
     generate_hourly_forecast,
     generate_daily_summary,
@@ -220,6 +222,7 @@ def init_db():
             _init_material_stocks()
             _init_hive_infos()
             _init_honey_batches()
+            _init_queen_bees()
             break
         except Exception as e:
             logger.error(f"Database connection failed: {e}. Retrying in 5 seconds...")
@@ -464,6 +467,103 @@ def _init_honey_batches():
         db.close()
 
 
+def _init_queen_bees():
+    db = SessionLocal()
+    try:
+        existing_count = db.query(QueenBee).count()
+        if existing_count > 0:
+            return
+
+        species_list = ["意大利蜂", "中华蜜蜂", "卡尼鄂拉蜂", "高加索蜂"]
+
+        rnd = random.Random(42)
+        now = datetime.now()
+
+        queens_data = []
+
+        for gen in range(5):
+            gen_queens = []
+            for i in range(3 if gen == 0 else (5 if gen == 1 else (8 if gen == 2 else (6 if gen == 3 else 4)))):
+                species = species_list[rnd.randint(0, len(species_list) - 1)]
+                farm_idx = rnd.randint(0, len(BEE_FARMS) - 1)
+                farm = BEE_FARMS[farm_idx]
+
+                birth_offset_days = gen * 365 + rnd.randint(30, 200)
+                birth_date = now - timedelta(days=birth_offset_days)
+
+                hive_prefix = farm["id"].split("_")[1].upper()
+                hive_num = rnd.randint(1, 200)
+
+                queen_no_prefix = species[:2] if len(species) >= 2 else "Q"
+                queen_no = f"{queen_no_prefix}-{farm['id'].split('_')[1]}-{gen+1:02d}{i+1:03d}"
+
+                is_retired = 1 if gen >= 3 else (1 if rnd.random() < 0.3 else 0)
+                retirement_date = None
+                if is_retired:
+                    retirement_offset = rnd.randint(30, 180)
+                    retirement_date = now - timedelta(days=retirement_offset)
+
+                gen_queens.append({
+                    "queen_no": queen_no,
+                    "bee_species": species,
+                    "birth_date": birth_date,
+                    "farm_id": farm["id"],
+                    "current_hive": f"{hive_prefix}-{hive_num:04d}" if not is_retired else None,
+                    "egg_quality_score": rnd.randint(3, 5),
+                    "temperament_score": rnd.randint(2, 5),
+                    "is_retired": is_retired,
+                    "retirement_date": retirement_date,
+                    "mother_idx": None,
+                    "notes": f"第{gen+1}代优质{species}蜂王",
+                })
+
+            queens_data.append(gen_queens)
+
+        for gen_idx in range(1, len(queens_data)):
+            for queen in queens_data[gen_idx]:
+                prev_gen = queens_data[gen_idx - 1]
+                same_species = [q for q in prev_gen if q["bee_species"] == queen["bee_species"]]
+                if same_species:
+                    mother = same_species[rnd.randint(0, len(same_species) - 1)]
+                    queen["mother_queen_no"] = mother["queen_no"]
+                else:
+                    mother = prev_gen[rnd.randint(0, len(prev_gen) - 1)]
+                    queen["mother_queen_no"] = mother["queen_no"]
+                    queen["bee_species"] = mother["bee_species"]
+
+        queen_id_map = {}
+        for gen_queens in queens_data:
+            for q_data in gen_queens:
+                mother_id = None
+                if "mother_queen_no" in q_data and q_data["mother_queen_no"]:
+                    mother_id = queen_id_map.get(q_data["mother_queen_no"])
+
+                queen = QueenBee(
+                    queen_no=q_data["queen_no"],
+                    bee_species=q_data["bee_species"],
+                    mother_id=mother_id,
+                    birth_date=q_data["birth_date"],
+                    retirement_date=q_data["retirement_date"],
+                    egg_quality_score=q_data["egg_quality_score"],
+                    temperament_score=q_data["temperament_score"],
+                    current_hive=q_data["current_hive"],
+                    farm_id=q_data["farm_id"],
+                    notes=q_data["notes"],
+                    is_retired=q_data["is_retired"],
+                )
+                db.add(queen)
+                db.flush()
+                queen_id_map[q_data["queen_no"]] = queen.id
+
+        db.commit()
+        logger.info("Queen bees initialized.")
+    except Exception as e:
+        logger.error(f"Failed to init queen bees: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 app = FastAPI(title="FastAPI Prometheus Demo - 蜂场监控大屏")
 
 app.add_middleware(
@@ -486,6 +586,7 @@ instrumentator.instrument(app).expose(app)
 
 app.include_router(trace_router)
 app.include_router(backup_router)
+app.include_router(queen_bee_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},
