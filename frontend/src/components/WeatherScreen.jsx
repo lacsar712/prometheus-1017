@@ -470,7 +470,6 @@ function WeatherScreen() {
     const [detailLoading, setDetailLoading] = useState(false);
     const [selectedFarmId, setSelectedFarmId] = useState(null);
     const [lastUpdate, setLastUpdate] = useState(null);
-    const [alertActions, setAlertActions] = useState({});
 
     const fetchFarms = useCallback(async () => {
         try {
@@ -514,13 +513,7 @@ function WeatherScreen() {
     }, [selectedFarmId, fetchFarmDetail]);
 
     const handleToggleAction = async (alert, action) => {
-        const key = `${alert.alert_type}_${alert.start_time}_${action.id}`;
         const newCompleted = !action.is_completed;
-
-        setAlertActions(prev => ({
-            ...prev,
-            [key]: newCompleted,
-        }));
 
         setDetailData(prev => {
             if (!prev) return prev;
@@ -541,12 +534,29 @@ function WeatherScreen() {
 
         try {
             await axios.put(
-                `${API_BASE_URL}/api/weather/alerts/${alert.alert_type}/actions/${action.id}`,
+                `${API_BASE_URL}/api/weather/alerts/${alert.alert_type}/actions/${action.id}?farm_id=${encodeURIComponent(selectedFarmId)}&alert_start_time=${encodeURIComponent(alert.start_time)}`,
                 { is_completed: newCompleted, completed_by: '当前用户' }
             );
             toast.success(newCompleted ? '已标记为完成' : '已取消完成');
         } catch (err) {
             console.error('更新状态失败:', err);
+            setDetailData(prev => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    alerts: prev.alerts.map(a => {
+                        if (a.alert_type !== alert.alert_type || a.start_time !== alert.start_time) return a;
+                        return {
+                            ...a,
+                            actions: a.actions.map(ac => {
+                                if (ac.id !== action.id) return ac;
+                                return { ...ac, is_completed: !newCompleted };
+                            }),
+                        };
+                    }),
+                };
+            });
+            toast.error('更新状态失败，请重试');
         }
     };
 

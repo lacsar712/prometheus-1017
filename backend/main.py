@@ -19,7 +19,7 @@ import httpx
 from models.database import Base, engine, SessionLocal, get_db
 from models.honey_batch import HoneyBatch, BatchEvent
 from models.honey_inventory import HoneyInventory, HoneyStockFlow
-from models.weather import WeatherForecast, WeatherAlert, AlertAction
+from models.weather import WeatherForecast, WeatherAlert, AlertAction, AlertActionState
 from models.backup import BackupRecord
 from models.queen_bee import QueenBee
 from models.pest_disease import PestDisease
@@ -214,6 +214,23 @@ def _get_cached_weather(key: str) -> Optional[Any]:
 
 def _set_cached_weather(key: str, data: Any) -> None:
     _WEATHER_CACHE[key] = {"data": data, "time": time.time()}
+
+
+def _merge_action_states(db: Session, farm_id: str, alerts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    states = db.query(AlertActionState).filter(AlertActionState.farm_id == farm_id).all()
+    state_map = {}
+    for s in states:
+        lookup = f"{s.alert_key}||{s.action_id}"
+        state_map[lookup] = s
+
+    for alert in alerts:
+        alert_key = f"{alert['alert_type']}_{alert['start_time']}"
+        for action in alert.get("actions", []):
+            lookup = f"{alert_key}||{action['id']}"
+            if lookup in state_map:
+                action["is_completed"] = state_map[lookup].is_completed
+
+    return alerts
 
 
 def _get_period_by_date(d: datetime) -> str:
@@ -1901,6 +1918,8 @@ async def get_weather_farm_detail(
             "actions": actions,
         })
 
+    _merge_action_states(db, farm_id, alerts_with_actions)
+
     severity_order = {"critical": 0, "warning": 1, "info": 2}
     alerts_with_actions.sort(key=lambda x: (severity_order.get(x["severity"], 3), x["start_time"]))
 
@@ -1973,13 +1992,16 @@ async def get_weather_alerts_timeline(
     alerts_with_actions = []
     for alert in alerts:
         actions = generate_alert_actions(alert["alert_type"], alert["level"])
-        completed_count = sum(1 for a in actions if a.get("is_completed"))
         alerts_with_actions.append({
             **alert,
             "actions": actions,
-            "actions_total": len(actions),
-            "actions_completed": completed_count,
         })
+
+    _merge_action_states(db, farm_id, alerts_with_actions)
+
+    for alert in alerts_with_actions:
+        alert["actions_total"] = len(alert["actions"])
+        alert["actions_completed"] = sum(1 for a in alert["actions"] if a.get("is_completed"))
 
     result = {
         "timestamp": now.isoformat(),
@@ -1997,8 +2019,35 @@ async def update_alert_action(
     alert_id: str,
     action_id: str,
     data: AlertActionUpdate,
+    farm_id: str = Query(..., description="蜂场ID"),
+    alert_start_time: str = Query(..., description="预警开始时间"),
     db: Session = Depends(get_db)
 ):
+    alert_key = f"{alert_id}_{alert_start_time}"
+
+    existing = db.query(AlertActionState).filter(
+        AlertActionState.farm_id == farm_id,
+        AlertActionState.alert_key == alert_key,
+        AlertActionState.action_id == action_id,
+    ).first()
+
+    if existing:
+        existing.is_completed = data.is_completed
+        existing.completed_by = data.completed_by
+        existing.completed_at = datetime.now() if data.is_completed else None
+    else:
+        state = AlertActionState(
+            farm_id=farm_id,
+            alert_key=alert_key,
+            action_id=action_id,
+            is_completed=data.is_completed,
+            completed_by=data.completed_by,
+            completed_at=datetime.now() if data.is_completed else None,
+        )
+        db.add(state)
+
+    db.commit()
+
     cache_key_prefix = f"weather_"
     keys_to_remove = [k for k in _WEATHER_CACHE.keys() if k.startswith(cache_key_prefix)]
     for k in keys_to_remove:
@@ -2010,7 +2059,7 @@ async def update_alert_action(
         "action_id": action_id,
         "is_completed": data.is_completed,
         "completed_by": data.completed_by,
-        "completed_at": datetime.now().isoformat(),
+        "completed_at": datetime.now().isoformat() if data.is_completed else None,
     }
 
 

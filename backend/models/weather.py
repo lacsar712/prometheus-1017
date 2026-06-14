@@ -78,3 +78,20 @@ class AlertAction(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     alert = relationship("WeatherAlert", back_populates="actions")
+
+
+class AlertActionState(Base):
+    __tablename__ = "alert_action_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    farm_id = Column(String, index=True, nullable=False)
+    alert_key = Column(String, index=True, nullable=False)
+    action_id = Column(String, nullable=False)
+    is_completed = Column(Boolean, default=False)
+    completed_by = Column(String, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('idx_action_state_unique', 'farm_id', 'alert_key', 'action_id', unique=True),
+    )
