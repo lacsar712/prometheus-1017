@@ -7,6 +7,11 @@ export default defineConfig({
     server: {
         host: '0.0.0.0',
         port: 3000,
-        historyApiFallback: true,
+        historyApiFallback: {
+            rewrites: [
+                { from: /^\/trace\/.*$/, to: '/index.html' },
+                { from: /./, to: '/index.html' },
+            ],
+        },
     }
 })

@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
     Terminal, Server, Layout, Monitor, ChevronRight, Droplets,
-    CloudSun, Crown, Globe, Languages, Bug, Package, Mail
+    CloudSun, Crown, Globe, Languages, Bug, Package, Mail, QrCode
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
@@ -27,8 +27,9 @@ function ConsoleApp() {
     const [loading, setLoading] = useState(false);
     const [newItem, setNewItem] = useState({ name: '', description: '' });
     const [lastResponse, setLastResponse] = useState(null);
+    const [batchNoInput, setBatchNoInput] = useState('');
+    const navigate = useNavigate();
 
-    const params = useMemo(() => new URLSearchParams(window.location.search), []);
     const openDashboard = () => {
         const url = new URL(window.location.href);
         url.searchParams.set('screen', 'dashboard');
@@ -384,6 +385,126 @@ function ConsoleApp() {
                             </div>
                         </div>
                     </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-amber-500/10 via-yellow-400/5 to-transparent border border-amber-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex-shrink-0">
+                                <QrCode className="w-6 h-6 text-amber-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-amber-200 mb-1">蜂蜜溯源公开页 · 已上线</h3>
+                                <p className="text-sm text-amber-200/70 leading-relaxed mb-3">
+                                    面向蜂蜜消费者扫码查看生产履历的对外入口。展示蜂蜜批次基本信息、蜂场地图位置、
+                                    按时间轴串联巡检/采蜜/检测/灌装等关键事件，附质检报告与蜂场介绍。
+                                    自动生成可下载、可打印的二维码，支持蜂蜜瓶贴尺寸PDF排版导出。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            window.open('/trace/B20260414001', '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium hover:bg-amber-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <QrCode className="w-3.5 h-3.5" />
+                                        查看示例
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                        /trace/:批次号
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <section className="glass-card rounded-3xl p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <QrCode className="w-5 h-5 text-amber-400" />
+                            <h2 className="text-xl font-semibold">蜂蜜溯源查询</h2>
+                        </div>
+                        <p className="text-slate-400 text-sm mb-4">
+                            输入蜂蜜批次号，或选择下方示例批次，一键查看生产履历与质检报告。
+                        </p>
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                if (batchNoInput.trim()) {
+                                    window.open(`/trace/${batchNoInput.trim()}`, '_blank');
+                                }
+                            }}
+                            className="flex gap-3 mb-4"
+                        >
+                            <input
+                                type="text"
+                                placeholder="请输入批次号，如 B20260414001"
+                                value={batchNoInput}
+                                onChange={(e) => setBatchNoInput(e.target.value)}
+                                className="flex-1 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 focus:border-amber-500 outline-none transition-all"
+                            />
+                            <button
+                                type="submit"
+                                className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-medium transition-all flex items-center gap-2 shadow-lg shadow-amber-500/20"
+                            >
+                                <QrCode className="w-4 h-4" />
+                                查询
+                            </button>
+                        </form>
+                        <div className="space-y-2">
+                            <p className="text-xs text-slate-500">示例批次：</p>
+                            <div className="flex flex-wrap gap-2">
+                                {['B20260414001', 'B20260514004', 'B20260315007', 'B20260415010'].map(batch => (
+                                    <button
+                                        key={batch}
+                                        type="button"
+                                        onClick={() => {
+                                            setBatchNoInput(batch);
+                                            window.open(`/trace/${batch}`, '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono hover:bg-amber-500/20 transition-all"
+                                    >
+                                        {batch}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="glass-card rounded-3xl p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                            <Package className="w-5 h-5 text-amber-400" />
+                            <h2 className="text-xl font-semibold">批次号规则说明</h2>
+                        </div>
+                        <div className="space-y-3 text-sm">
+                            <div className="flex items-start gap-3">
+                                <div className="w-6 h-6 rounded bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <span className="text-amber-400 text-xs font-bold">B</span>
+                                </div>
+                                <div>
+                                    <p className="text-slate-300 font-medium">前缀标识</p>
+                                    <p className="text-slate-500 text-xs">固定字母 B，表示 Batch（批次）</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-6 h-6 rounded bg-green-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <span className="text-green-400 text-xs font-bold">8</span>
+                                </div>
+                                <div>
+                                    <p className="text-slate-300 font-medium">采蜜日期</p>
+                                    <p className="text-slate-500 text-xs">8 位数字，格式 YYYYMMDD，如 20260414</p>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-6 h-6 rounded bg-blue-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                    <span className="text-blue-400 text-xs font-bold">3</span>
+                                </div>
+                                <div>
+                                    <p className="text-slate-300 font-medium">序号</p>
+                                    <p className="text-slate-500 text-xs">3 位数字，当日批次流水号，从 001 开始</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -570,7 +691,8 @@ function App() {
 }
 
 function ScreenRouter() {
-    const params = useMemo(() => new URLSearchParams(window.location.search), []);
+    const location = useLocation();
+    const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
     const screen = params.get('screen');
 
     if (screen === 'dashboard') {
