@@ -1405,6 +1405,8 @@ async def get_feeding_records(
     if start_time:
         query = query.filter(FeedingRecord.feeding_time >= start_time)
     if end_time:
+        if end_time.hour == 0 and end_time.minute == 0 and end_time.second == 0 and end_time.microsecond == 0:
+            end_time = end_time.replace(hour=23, minute=59, second=59, microsecond=999999)
         query = query.filter(FeedingRecord.feeding_time <= end_time)
     
     total = query.count()
