@@ -21,10 +21,12 @@ from models.honey_batch import HoneyBatch, BatchEvent
 from models.weather import WeatherForecast, WeatherAlert, AlertAction
 from models.backup import BackupRecord
 from models.queen_bee import QueenBee
+from models.pest_disease import PestDisease
 from routers.trace import router as trace_router
 from routers.backup import router as backup_router
 from routers.queen_bee import router as queen_bee_router
 from routers.i18n import router as i18n_router
+from routers.pest_disease import router as pest_disease_router
 from services.i18n_service import (
     init_i18n_resources,
     init_term_dictionary,
@@ -231,6 +233,7 @@ def init_db():
             _init_hive_infos()
             _init_honey_batches()
             _init_queen_bees()
+            _init_pest_diseases()
             db = SessionLocal()
             try:
                 init_i18n_resources(db)
@@ -578,6 +581,160 @@ def _init_queen_bees():
         db.close()
 
 
+PEST_DISEASE_SEED = [
+    {
+        "name_cn": "美洲幼虫腐臭病",
+        "name_en": "American Foulbrood (AFB)",
+        "aliases": "烂子病,美腐",
+        "category": "disease",
+        "symptom_tags": "幼虫死亡,虫体腐烂,腥臭味,房盖凹陷穿孔,拉丝试验阳性,褐色粘液,蛹房变色",
+        "causes": "由幼虫类芽孢杆菌（Paenibacillus larvae）引起，芽孢可存活数十年。通过盗蜂、迷巢、饲喂污染花粉、蜂具交叉使用传播。",
+        "prevention": "1. 预防：定期巡检，严禁蜂具混用，新购蜂具消毒后再用；\n2. 轻度：人工清除病脾，用0.5%高锰酸钾喷脾，饲喂含土霉素糖浆（注意休药期）；\n3. 重度：烧毁病群及蜂箱，彻底消毒场地；\n4. 法规：该病属法定检疫对象，发现须上报。",
+        "severity": "critical",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=American%20Foulbrood%20disease%20in%20honey%20bee%20brood%20cells%20showing%20sunken%20perforated%20cappings%20and%20brown%20ropy%20larval%20remains%20in%20comb%20close%20up%20photograph&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "欧洲幼虫腐臭病",
+        "name_en": "European Foulbrood (EFB)",
+        "aliases": "欧腐,黄色烂子病",
+        "category": "disease",
+        "symptom_tags": "幼虫死亡,虫体变黄,螺旋形扭曲,酸臭味,幼虫未封盖即死,虫体塌陷,工蜂清理不彻底",
+        "causes": "由蜂房蜜蜂球菌（Melissococcus plutonius）引起。在春繁期蜂群增长与饲料不匹配时最易发生，弱群高发。",
+        "prevention": "1. 保持蜂群强壮，春繁期及时补饲；\n2. 发现病群后抽出病脾，换王增强群势；\n3. 饲喂含泰乐菌素或土霉素的糖浆（注意休药期）；\n4. 严重时换箱换脾，淘汰病脾。",
+        "severity": "high",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=European%20Foulbrood%20in%20honey%20bee%20brood%20comb%20showing%20yellow%20twisted%20dead%20larvae%20in%20open%20cells%20close%20up&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "白垩病",
+        "name_en": "Chalkbrood Disease",
+        "aliases": "石灰质病,石子病",
+        "category": "disease",
+        "symptom_tags": "幼虫死亡,虫体木乃伊化,白色真菌块,黑色子实体,封盖蛹死亡,巢门口白垩块,潮湿环境",
+        "causes": "由蜜蜂球囊菌（Ascosphaera apis）引起，高湿低温环境易发。春季和梅雨季节最常见，弱群和饲料不足群易感。",
+        "prevention": "1. 保持箱内干燥通风，垫高箱底；\n2. 春季加强保温、补饲，增强群势；\n3. 发现病脾及时抽出焚烧；\n4. 可选用抗病力强的蜂种换王；\n5. 使用大蒜醋酸等天然抑菌剂喷脾。",
+        "severity": "medium",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Chalkbrood%20disease%20in%20honey%20bee%20comb%20showing%20white%20mummified%20larvae%20and%20black%20fruiting%20bodies%20in%20cells&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "囊状幼虫病",
+        "name_en": "Sacbrood Disease",
+        "aliases": "囊幼病,尖头病",
+        "category": "disease",
+        "symptom_tags": "幼虫死亡,虫体囊状,头部上翘,液体状内容物,褐色船形幼虫,花子脾,封盖穿孔",
+        "causes": "由囊状幼虫病毒（SBV）引起。春季多发，中华蜜蜂易感性高于意大利蜂。蜜蜂采集污染花蜜后回巢传播。",
+        "prevention": "1. 选育抗病品系，中蜂换王效果明显；\n2. 春繁期注意保温和饲喂，增强蜂群抗病力；\n3. 发现病群后断子清巢：囚王10~14天让工蜂清理病脾；\n4. 抽出严重病脾焚烧；\n5. 饲喂黄芪多糖等免疫增强剂。",
+        "severity": "medium",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Sacbrood%20virus%20disease%20in%20honey%20bee%20brood%20showing%20pointed%20head%20sac%20like%20larvae%20in%20comb%20cells&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "蜂螨病（大蜂螨）",
+        "name_en": "Varroa Mite Infestation",
+        "aliases": "瓦螨,雅氏瓦螨,大螨",
+        "category": "pest",
+        "symptom_tags": "蜂体寄生螨虫,翅膀畸形,爬蜂,出房蜂瘦小,螨虫可见,蜂群衰弱,幼虫死亡,蜂翅残缺",
+        "causes": "由雅氏瓦螨（Varroa destructor）寄生引起。螨虫吸食成蜂和幼虫血淋巴，传播病毒，导致蜂群崩溃。秋季螨害最严重。",
+        "prevention": "1. 秋季治螨：断子期用甲酸/草酸熏蒸，繁殖期挂螨扑片；\n2. 春季预防：扣王断子后治螨；\n3. 生物防治：培育抗螨蜂种，使用小巢脾诱螨；\n4. 物理防治：粉糖撒蜂体或使用加热板；\n5. 定期监测：糖粉抖落法或自然落螨板计数。",
+        "severity": "critical",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Varroa%20destructor%20mite%20attached%20to%20honey%20bee%20thorax%20between%20body%20segments%20macro%20photograph&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "小蜂螨病",
+        "name_en": "Tropilaelaps Mite Infestation",
+        "aliases": "亮热厉螨,小螨",
+        "category": "pest",
+        "symptom_tags": "幼虫死亡,蛹死亡,出房蜂畸形,蜂群逃亡,封盖蛹被害,螨虫可见,蜂群衰弱",
+        "causes": "由亮热厉螨（Tropilaelaps clarae）寄生繁殖于封盖子脾中。主要危害大蜜蜂和意大利蜂，南方地区多见，繁殖速度比大蜂螨更快。",
+        "prevention": "1. 扣王断子使螨虫无寄主而自然消亡；\n2. 用甲酸或草酸熏蒸；\n3. 抽出封盖子脾集中处理；\n4. 严防引入带螨蜂群或转地放蜂交叉感染；\n5. 定期巡查封盖子脾，发现异常及时处理。",
+        "severity": "high",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Tropilaelaps%20mite%20on%20honey%20bee%20brood%20cells%20damaged%20pupae%20macro%20photograph&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "巢虫（蜡螟）",
+        "name_en": "Wax Moth Infestation",
+        "aliases": "大蜡螟,小蜡螟,绵虫",
+        "category": "pest",
+        "symptom_tags": "巢脾被蛀蚀,隧道状丝道,白头蛹,脾面虫粪,蜡屑堆积,蜂群逃亡,脾面空泡",
+        "causes": "由大蜡螟（Galleria mellonella）和小蜡螟（Achroia grisella）幼虫蛀食巢脾。弱群和空脾贮存不当易受害，夏秋高发。",
+        "prevention": "1. 强群护脾，保持蜂脾相称；\n2. 贮存空脾用硫磺熏蒸或冷冻处理；\n3. 巢脾仓库密封防蛾，使用PDB（对二氯苯）片熏杀；\n4. 发现虫害脾及时更换或冷冻杀虫；\n5. 定期清理箱底蜡屑。",
+        "severity": "medium",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Wax%20moth%20larvae%20damage%20on%20honey%20bee%20comb%20with%20silken%20tunnels%20and%20webbing&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "农药中毒",
+        "name_en": "Pesticide Poisoning",
+        "aliases": "药害,化学中毒",
+        "category": "poisoning",
+        "symptom_tags": "大量死蜂,蜂箱前死蜂堆积,蜜蜂抽搐,打滚,翅膀异常,蜜蜂呆滞,采集蜂突然减少,蜂群暴躁,幼虫死亡",
+        "causes": "蜂群采集了施药农作物花蜜或受到农药飘移影响。有机磷、氨基甲酸酯、新烟碱类杀虫剂对蜜蜂毒性最大。施药时间不当或违规用药是主要原因。",
+        "prevention": "1. 与周边农户沟通，避免花期施药；\n2. 必须施药时提前关闭巢门或转场；\n3. 中毒后立即转移蜂群至安全区域；\n4. 饲喂解毒糖浆（5%苏打水或阿托品溶液）；\n5. 清除有毒花蜜花粉；\n6. 向农业部门举报违规施药行为。",
+        "severity": "critical",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Honey%20bees%20dead%20in%20front%20of%20hive%20entrance%20due%20to%20pesticide%20poisoning%20pile%20of%20dead%20bees&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "甘露蜜中毒",
+        "name_en": "Honeydew Poisoning",
+        "aliases": "甘露中毒,松蜜中毒",
+        "category": "poisoning",
+        "symptom_tags": "蜜蜂腹部膨大,下痢,爬蜂,箱壁粪便,越冬蜂死亡,饲料变深,蜜脾结晶粗硬",
+        "causes": "蜂群采集了蚜虫或介壳虫分泌的甘露蜜。甘露蜜含糊精和矿物质过高，蜜蜂难以消化，在越冬期尤其有害。",
+        "prevention": "1. 秋季最后一个蜜源后检查饲料质量；\n2. 发现甘露蜜须全部摇出，换喂白糖糖浆；\n3. 越冬前确保巢内饲料为纯净蜂蜜或糖浆；\n4. 避免在松树林等甘露蜜源附近越冬；\n5. 中毒后用温水喷脾并补喂优质糖浆。",
+        "severity": "high",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Honey%20bee%20with%20distended%20abdomen%20from%20honeydew%20poisoning%20on%20hive%20frames&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "蜜蜂微孢子虫病",
+        "name_en": "Nosema Disease",
+        "aliases": "微孢子虫,蜂孢虫病",
+        "category": "disease",
+        "symptom_tags": "爬蜂,下痢,腹部膨大,翅膀发抖,箱壁粪便,越冬蜂大量死亡,春繁缓慢,蜜蜂寿命缩短",
+        "causes": "由蜜蜂微孢子虫（Nosema apis / Nosema ceranae）感染中肠上皮细胞引起。越冬期和早春高发，温度波动大时易流行。",
+        "prevention": "1. 越冬前饲喂烟曲霉素（Fumagilin）糖浆预防；\n2. 保持越冬室温度稳定、干燥通风；\n3. 春季发现病群及时换王、换脾；\n4. 用冰醋酸熏蒸空脾杀灭孢子；\n5. 培育抗病蜂种，强群越冬。",
+        "severity": "high",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Honey%20bee%20showing%20Nosema%20disease%20symptoms%20crawling%20bees%20with%20trembling%20wings%20near%20hive&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "蜂虱",
+        "name_en": "Bee Louse (Braula coeca)",
+        "aliases": "蜂蝇,蜂虱蝇",
+        "category": "pest",
+        "symptom_tags": "蜂体可见虫体,蜂王体表寄生,取食蜂王饲料,蜂群轻微衰弱",
+        "causes": "蜂虱（Braula coeca）是一种无翅蝇类，寄生在蜂体上特别是蜂王体表，取食蜂王口器上的饲料。传播慢，危害相对较轻。",
+        "prevention": "1. 保持强群，弱群易感；\n2. 用烟叶熏蜂法驱除蜂体上的蜂虱；\n3. 可用薄荷油制剂处理；\n4. 捕获蜂王后用镊子清除体表蜂虱再放回；\n5. 转地放蜂前检查处理。",
+        "severity": "low",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Braula%20coeca%20bee%20louse%20attached%20to%20honey%20bee%20queen%20thorax%20macro%20photograph&image_size=landscape_4_3",
+    },
+    {
+        "name_cn": "茶花中毒",
+        "name_en": "Tea Flower Poisoning",
+        "aliases": "茶花烂子",
+        "category": "poisoning",
+        "symptom_tags": "幼虫死亡,烂子,花蜜发酵,幼虫变色,腐烂腥臭,封盖幼虫死亡",
+        "causes": "茶花蜜中含有较高的寡糖和咖啡碱，幼虫不能消化吸收。在茶花盛开期采集茶花蜜后，幼虫因消化障碍而死亡腐烂。南方茶区深秋常见。",
+        "prevention": "1. 茶花期避免进场或提前转场；\n2. 如必须采集，采取分区管理：繁殖区与采蜜区隔离；\n3. 繁殖区仅喂白糖糖浆，不使幼虫吃到茶花蜜；\n4. 饲喂酸化糖浆（0.1%柠檬酸）缓解中毒；\n5. 采蜜区及时取蜜，减少茶花蜜留巢时间。",
+        "severity": "medium",
+        "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Honey%20bee%20brood%20damage%20from%20tea%20flower%20nectar%20poisoning%20dead%20discolored%20larvae%20in%20comb&image_size=landscape_4_3",
+    },
+]
+
+
+def _init_pest_diseases():
+    db = SessionLocal()
+    try:
+        existing_count = db.query(PestDisease).count()
+        if existing_count > 0:
+            return
+        for seed in PEST_DISEASE_SEED:
+            pd = PestDisease(**seed)
+            db.add(pd)
+        db.commit()
+        logger.info(f"Pest disease knowledge base initialized with {len(PEST_DISEASE_SEED)} entries.")
+    except Exception as e:
+        logger.error(f"Failed to init pest diseases: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
 app = FastAPI(title="FastAPI Prometheus Demo - 蜂场监控大屏")
 
 app.add_middleware(
@@ -602,6 +759,7 @@ app.include_router(trace_router)
 app.include_router(backup_router)
 app.include_router(queen_bee_router)
 app.include_router(i18n_router)
+app.include_router(pest_disease_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},

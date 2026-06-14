@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
     Terminal, Server, Layout, Monitor, ChevronRight, Droplets,
-    CloudSun, Crown, Globe, Languages
+    CloudSun, Crown, Globe, Languages, Bug
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
@@ -15,6 +15,7 @@ import TracePage from './components/trace/TracePage'
 import BackupScreen from './components/BackupScreen'
 import QueenBeePage from './components/QueenBeePage'
 import LanguageResourcePage from './components/LanguageResourcePage'
+import PestDiseasePage from './components/PestDiseasePage'
 import { useI18n } from './contexts/I18nContext'
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -290,10 +291,39 @@ function ConsoleApp() {
                             </div>
                         </div>
                     </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-rose-500/10 via-red-400/5 to-transparent border border-rose-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex-shrink-0">
+                                <Bug className="w-6 h-6 text-rose-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-rose-200 mb-1">病虫害知识库与诊断助手 · 已上线</h3>
+                                <p className="text-sm text-rose-200/70 leading-relaxed mb-3">
+                                    沉淀蜂场病虫害经验，涵盖病害、虫害、中毒三大分类。提供症状标签智能诊断，输入观察症状即可获取可能病害排行与防治方案。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'pest-disease');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs font-medium hover:bg-rose-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <Bug className="w-3.5 h-3.5" />
+                                        进入知识库
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-rose-300/90 text-xs border border-rose-500/20 font-mono">
+                                        ?screen=pest-disease
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
                     <section className="md:col-span-2 glass-card rounded-3xl p-6 space-y-6">
                         <div className="flex items-center gap-2 mb-2">
                             <BarChart3 className="w-5 h-5 text-blue-400" />
@@ -502,6 +532,10 @@ function ScreenRouter() {
 
     if (screen === 'language-resource') {
         return <LanguageResourcePage />;
+    }
+
+    if (screen === 'pest-disease') {
+        return <PestDiseasePage />;
     }
 
     return <ConsoleApp />;
