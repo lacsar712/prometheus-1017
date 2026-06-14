@@ -24,6 +24,14 @@ from models.queen_bee import QueenBee
 from routers.trace import router as trace_router
 from routers.backup import router as backup_router
 from routers.queen_bee import router as queen_bee_router
+from routers.i18n import router as i18n_router
+from services.i18n_service import (
+    init_i18n_resources,
+    init_term_dictionary,
+    load_i18n_cache,
+    load_term_dictionary,
+)
+from services.websocket_manager import manager
 from services.weather_service import (
     generate_hourly_forecast,
     generate_daily_summary,
@@ -223,6 +231,12 @@ def init_db():
             _init_hive_infos()
             _init_honey_batches()
             _init_queen_bees()
+            db = SessionLocal()
+            try:
+                init_i18n_resources(db)
+                init_term_dictionary(db)
+            finally:
+                db.close()
             break
         except Exception as e:
             logger.error(f"Database connection failed: {e}. Retrying in 5 seconds...")
@@ -587,6 +601,7 @@ instrumentator.instrument(app).expose(app)
 app.include_router(trace_router)
 app.include_router(backup_router)
 app.include_router(queen_bee_router)
+app.include_router(i18n_router)
 
 BEE_FARMS = [
     {"id": "farm_001", "name": "秦岭一号蜂场", "location": "陕西宝鸡太白县", "lat": 34.05, "lng": 107.32, "region": "西北"},
@@ -917,6 +932,12 @@ def generate_overview_stats(farm_id: Optional[str] = None) -> Dict[str, Any]:
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    db = SessionLocal()
+    try:
+        load_i18n_cache(db)
+        load_term_dictionary(db)
+    finally:
+        db.close()
     logger.info("Application started.")
 
 

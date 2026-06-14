@@ -4,7 +4,7 @@ import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
     Terminal, Server, Layout, Monitor, ChevronRight, Droplets,
-    CloudSun, Crown
+    CloudSun, Crown, Globe, Languages
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
@@ -14,6 +14,8 @@ import WeatherScreen from './components/WeatherScreen'
 import TracePage from './components/trace/TracePage'
 import BackupScreen from './components/BackupScreen'
 import QueenBeePage from './components/QueenBeePage'
+import LanguageResourcePage from './components/LanguageResourcePage'
+import { useI18n } from './contexts/I18nContext'
 
 const API_BASE_URL = 'http://localhost:8000';
 
@@ -257,6 +259,37 @@ function ConsoleApp() {
                             </div>
                         </div>
                     </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-amber-500/10 via-yellow-400/5 to-transparent border border-amber-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex-shrink-0">
+                                <Languages className="w-6 h-6 text-amber-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-amber-200 mb-1">蜂业术语多语言资源管理 · 已上线</h3>
+                                <p className="text-sm text-amber-200/70 leading-relaxed mb-3">
+                                    面向蜂业方言差异提供前端文案在线运维。支持按命名空间过滤、按 key 搜索，
+                                    双栏编辑附蜂业术语词典提示，保存后实时热更新至所有在线用户。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'language-resource');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium hover:bg-amber-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <Globe className="w-3.5 h-3.5" />
+                                        进入管理
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                        ?screen=language-resource
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -465,6 +498,10 @@ function ScreenRouter() {
 
     if (screen === 'queen-bee') {
         return <QueenBeePage />;
+    }
+
+    if (screen === 'language-resource') {
+        return <LanguageResourcePage />;
     }
 
     return <ConsoleApp />;

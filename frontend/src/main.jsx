@@ -4,10 +4,13 @@ import App from './App.jsx'
 import './index.css'
 import 'react-toastify/dist/ReactToastify.css'
 import { ToastContainer } from 'react-toastify'
+import { I18nProvider } from './contexts/I18nContext'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
-        <App />
-        <ToastContainer position="top-right" theme="dark" />
+        <I18nProvider>
+            <App />
+            <ToastContainer position="top-right" theme="dark" />
+        </I18nProvider>
     </React.StrictMode>,
 )
