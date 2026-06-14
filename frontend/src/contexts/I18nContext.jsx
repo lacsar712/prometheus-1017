@@ -7,6 +7,25 @@ const WS_BASE_URL = 'ws://localhost:8000'
 
 const I18nContext = createContext(null)
 
+const getStoredRole = () => {
+    if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('user_role')
+        if (stored) return stored
+        const urlParams = new URLSearchParams(window.location.search)
+        const roleParam = urlParams.get('role')
+        if (roleParam) return roleParam
+    }
+    return 'guest'
+}
+
+const getAxiosConfig = (role) => {
+    return {
+        headers: {
+            'X-User-Role': role,
+        }
+    }
+}
+
 export function I18nProvider({ children }) {
     const [currentLanguage, setCurrentLanguage] = useState('zh-CN')
     const [translations, setTranslations] = useState({})
@@ -15,12 +34,41 @@ export function I18nProvider({ children }) {
     const [wsConnected, setWsConnected] = useState(false)
     const [languages, setLanguages] = useState([])
     const [namespaces, setNamespaces] = useState([])
+    const [currentUser, setCurrentUser] = useState(null)
+    const [isAdmin, setIsAdmin] = useState(false)
+    const [userRole, setUserRoleState] = useState(getStoredRole())
+
+    const loadUserInfo = useCallback(async (role = userRole) => {
+        try {
+            const response = await axios.get(`${API_BASE_URL}/api/auth/me`, getAxiosConfig(role))
+            setCurrentUser(response.data)
+            setIsAdmin(response.data.is_admin || false)
+        } catch (error) {
+            console.error('Failed to load user info:', error)
+            setCurrentUser({
+                user_id: 'guest_001',
+                username: 'guest',
+                role: role,
+                name: '访客',
+                is_admin: false,
+            })
+            setIsAdmin(false)
+        }
+    }, [userRole])
+
+    const setUserRole = useCallback((role) => {
+        setUserRoleState(role)
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('user_role', role)
+        }
+    }, [])
 
     const loadTranslations = useCallback(async (lang) => {
         try {
             setIsLoading(true)
             const response = await axios.get(`${API_BASE_URL}/api/i18n/bundle`, {
-                params: { language: lang }
+                params: { language: lang },
+                ...getAxiosConfig(userRole),
             })
             setTranslations(response.data.resources || {})
             setVersion(response.data.version)
@@ -29,7 +77,7 @@ export function I18nProvider({ children }) {
         } finally {
             setIsLoading(false)
         }
-    }, [])
+    }, [userRole])
 
     const loadLanguages = useCallback(async () => {
         try {
@@ -62,6 +110,10 @@ export function I18nProvider({ children }) {
         setCurrentLanguage(lang)
         await loadTranslations(lang)
     }, [loadTranslations])
+
+    useEffect(() => {
+        loadUserInfo(userRole)
+    }, [userRole, loadUserInfo])
 
     useEffect(() => {
         loadLanguages()
@@ -138,9 +190,15 @@ export function I18nProvider({ children }) {
         wsConnected,
         languages,
         namespaces,
+        currentUser,
+        isAdmin,
+        userRole,
         t,
         changeLanguage,
         loadTranslations,
+        loadUserInfo,
+        setUserRole,
+        getAxiosConfig: () => getAxiosConfig(userRole),
         API_BASE_URL,
     }
 

@@ -29,6 +29,7 @@ from routers.trace import router as trace_router
 from routers.backup import router as backup_router
 from routers.queen_bee import router as queen_bee_router
 from routers.i18n import router as i18n_router
+from routers.auth import router as auth_router
 from routers.pest_disease import router as pest_disease_router
 from routers.honey_inventory import router as honey_inventory_router
 from routers.email import router as email_router
@@ -893,6 +894,7 @@ app.include_router(trace_router)
 app.include_router(backup_router)
 app.include_router(queen_bee_router)
 app.include_router(i18n_router)
+app.include_router(auth_router)
 app.include_router(pest_disease_router)
 app.include_router(honey_inventory_router)
 app.include_router(email_router)

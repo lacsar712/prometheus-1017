@@ -19,6 +19,7 @@ from services.i18n_service import (
     get_cache_version,
 )
 from services.websocket_manager import manager
+from services.auth_service import require_admin, UserInfo
 from schemas.i18n import (
     LanguageResourceCreate,
     LanguageResourceUpdate,
@@ -64,6 +65,7 @@ async def get_translations(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(50, ge=1, le=200, description="每页条数"),
     db: Session = Depends(get_db),
+    current_user: UserInfo = Depends(require_admin),
 ):
     return get_translation_table(db, namespace, key_search, page, page_size)
 
@@ -87,6 +89,7 @@ async def get_single_resource(
     namespace: str = Query(...),
     key: str = Query(...),
     db: Session = Depends(get_db),
+    current_user: UserInfo = Depends(require_admin),
 ):
     resource = get_resource(db, language, namespace, key)
     if not resource:
@@ -108,6 +111,7 @@ async def get_single_resource(
 async def create_resource(
     data: LanguageResourceCreate,
     db: Session = Depends(get_db),
+    current_user: UserInfo = Depends(require_admin),
 ):
     resource = create_or_update_resource(
         db,
@@ -142,6 +146,7 @@ async def update_resource(
     key: str = Query(...),
     data: LanguageResourceUpdate = None,
     db: Session = Depends(get_db),
+    current_user: UserInfo = Depends(require_admin),
 ):
     if data is None:
         raise HTTPException(status_code=400, detail="Request body is required")
@@ -178,6 +183,7 @@ async def remove_resource(
     namespace: str = Query(...),
     key: str = Query(...),
     db: Session = Depends(get_db),
+    current_user: UserInfo = Depends(require_admin),
 ):
     deleted = delete_resource(db, language, namespace, key)
     if not deleted:
@@ -215,7 +221,9 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = "anonymous")
 
 
 @router.get("/ws/status")
-async def websocket_status():
+async def websocket_status(
+    current_user: UserInfo = Depends(require_admin),
+):
     return {
         "connected_clients": manager.get_connection_count(),
         "client_ids": manager.get_client_ids(),

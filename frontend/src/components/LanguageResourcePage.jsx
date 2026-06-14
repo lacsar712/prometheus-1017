@@ -7,19 +7,33 @@ import { useI18n } from '../contexts/I18nContext'
 const API_BASE_URL = 'http://localhost:8000'
 
 export default function LanguageResourcePage() {
-    const { wsConnected, languages, namespaces, API_BASE_URL: ctxApiBase } = useI18n()
+    const { wsConnected, languages, namespaces, API_BASE_URL: ctxApiBase, isAdmin, currentUser, getAxiosConfig, setUserRole, loadUserInfo } = useI18n()
     const [translationData, setTranslationData] = useState(null)
     const [loading, setLoading] = useState(true)
+    const [checkingPermission, setCheckingPermission] = useState(true)
     const [selectedNamespace, setSelectedNamespace] = useState('')
     const [searchKey, setSearchKey] = useState('')
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(50)
-    const [isAdmin, setIsAdmin] = useState(true)
     const [showEditor, setShowEditor] = useState(false)
     const [editingRow, setEditingRow] = useState(null)
     const [editingLanguage, setEditingLanguage] = useState('zh-CN')
+    const [showRoleDebug, setShowRoleDebug] = useState(false)
+
+    useEffect(() => {
+        const checkPermission = async () => {
+            try {
+                setCheckingPermission(true)
+                await loadUserInfo()
+            } finally {
+                setCheckingPermission(false)
+            }
+        }
+        checkPermission()
+    }, [loadUserInfo])
 
     const fetchTranslations = async () => {
+        if (!isAdmin) return
         try {
             setLoading(true)
             const params = {
@@ -29,19 +43,28 @@ export default function LanguageResourcePage() {
             if (selectedNamespace) params.namespace = selectedNamespace
             if (searchKey) params.key_search = searchKey
 
-            const response = await axios.get(`${ctxApiBase || API_BASE_URL}/api/i18n/translations`, { params })
+            const response = await axios.get(`${ctxApiBase || API_BASE_URL}/api/i18n/translations`, {
+                params,
+                ...getAxiosConfig(),
+            })
             setTranslationData(response.data)
         } catch (error) {
             console.error('Failed to fetch translations:', error)
-            toast.error('获取翻译数据失败')
+            if (error.response?.status === 403) {
+                toast.error('无权限访问翻译管理功能')
+            } else {
+                toast.error('获取翻译数据失败')
+            }
         } finally {
             setLoading(false)
         }
     }
 
     useEffect(() => {
-        fetchTranslations()
-    }, [page, pageSize, selectedNamespace, searchKey])
+        if (isAdmin) {
+            fetchTranslations()
+        }
+    }, [page, pageSize, selectedNamespace, searchKey, isAdmin])
 
     const handleRowClick = (row, lang) => {
         setEditingRow(row)
@@ -65,13 +88,45 @@ export default function LanguageResourcePage() {
         return lang ? lang.name : code
     }
 
-    if (!isAdmin) {
+    if (checkingPermission) {
         return (
             <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
                 <div className="text-center p-8">
-                    <div className="text-6xl mb-4">🔒</div>
-                    <h1 className="text-2xl font-bold mb-2">无访问权限</h1>
-                    <p className="text-slate-400">该页面仅管理员可见</p>
+                    <div className="animate-spin w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                    <p className="text-slate-400">权限校验中...</p>
+                </div>
+            </div>
+        )
+    }
+
+    if (!isAdmin) {
+        return (
+            <div className="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center">
+                <div className="text-center p-8 max-w-md">
+                    <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-red-500/10 border-2 border-red-500/30 flex items-center justify-center">
+                        <span className="text-5xl">🔒</span>
+                    </div>
+                    <h1 className="text-2xl font-bold mb-3 text-red-400">无访问权限</h1>
+                    <p className="text-slate-400 mb-6">该页面仅管理员可见</p>
+
+                    <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 mb-6 text-left">
+                        <h3 className="text-sm font-medium text-slate-300 mb-2">当前用户信息</h3>
+                        <div className="space-y-1 text-sm">
+                            <p className="text-slate-400">
+                                用户角色: <span className="text-slate-200 font-mono">{currentUser?.role || 'guest'}</span>
+                            </p>
+                            <p className="text-slate-400">
+                                用户名称: <span className="text-slate-200">{currentUser?.name || '访客'}</span>
+                            </p>
+                            <p className="text-slate-400">
+                                管理员权限: <span className={isAdmin ? 'text-green-400' : 'text-red-400'}>{isAdmin ? '✓ 已授予' : '✗ 未授予'}</span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="text-xs text-slate-500">
+                        <p>如需访问请联系系统管理员分配权限</p>
+                    </div>
                 </div>
             </div>
         )
@@ -252,7 +307,7 @@ export default function LanguageResourcePage() {
 }
 
 function TranslationEditor({ row, language, languages, onClose }) {
-    const { API_BASE_URL: ctxApiBase } = useI18n()
+    const { API_BASE_URL: ctxApiBase, getAxiosConfig, currentUser } = useI18n()
     const [translation, setTranslation] = useState(row.translations[language] || '')
     const [referenceLang, setReferenceLang] = useState(language === 'zh-CN' ? 'en-US' : 'zh-CN')
     const [saving, setSaving] = useState(false)
@@ -296,13 +351,18 @@ function TranslationEditor({ row, language, languages, onClose }) {
             setSaving(true)
             await axios.put(
                 `${ctxApiBase || API_BASE_URL}/api/i18n/resource?language=${language}&namespace=${row.namespace}&key=${row.key}`,
-                { value: translation, updated_by: 'admin' }
+                { value: translation, updated_by: currentUser?.username || 'admin' },
+                getAxiosConfig()
             )
             toast.success('翻译已保存并推送至所有在线用户')
             onClose()
         } catch (error) {
             console.error('Failed to save translation:', error)
-            toast.error('保存失败')
+            if (error.response?.status === 403) {
+                toast.error('无权限执行此操作')
+            } else {
+                toast.error('保存失败')
+            }
         } finally {
             setSaving(false)
         }

@@ -6,3 +6,4 @@ from .qrcode_service import *
 from .queen_bee_service import *
 from .i18n_service import *
 from .websocket_manager import *
+from .auth_service import *
