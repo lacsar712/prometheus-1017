@@ -27,6 +27,7 @@ class StockFlowCreate(BaseModel):
     change_quantity: int
     operator: str
     reason: Optional[str] = None
+    target_warehouse: Optional[str] = None
 
 
 class InventoryCreate(BaseModel):
@@ -77,6 +78,7 @@ class StockFlowOut(BaseModel):
     quantity_after: int
     operator: str
     reason: Optional[str] = None
+    target_warehouse: Optional[str] = None
     created_at: Optional[datetime] = None
 
 

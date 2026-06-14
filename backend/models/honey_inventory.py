@@ -43,6 +43,7 @@ class HoneyStockFlow(Base):
     quantity_after = Column(Integer, nullable=False)
     operator = Column(String, nullable=False)
     reason = Column(Text, nullable=True)
+    target_warehouse = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     __table_args__ = (

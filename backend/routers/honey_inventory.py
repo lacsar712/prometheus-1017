@@ -59,6 +59,7 @@ def _flow_to_out(flow: HoneyStockFlow) -> dict:
         "quantity_after": flow.quantity_after,
         "operator": flow.operator,
         "reason": flow.reason,
+        "target_warehouse": flow.target_warehouse,
         "created_at": flow.created_at.isoformat() if flow.created_at else None,
     }
 
@@ -84,7 +85,6 @@ async def get_inventory_stats(db: Session = Depends(get_db)):
         abs(f.change_quantity) for f in monthly_flows
         if f.flow_type in ("outbound", "stocktake_loss") and f.change_quantity < 0
     )
-
     return {
         "total_quantity": total_quantity,
         "total_value": total_value,
@@ -255,48 +255,24 @@ async def list_flows(
     }
 
 
-@router.post("/flows", summary="录入出入库流水（自动更新库存数量）")
-async def create_flow(data: StockFlowCreate, db: Session = Depends(get_db)):
-    if data.flow_type not in FLOW_TYPES:
-        raise HTTPException(status_code=400, detail=f"无效的流水类型: {data.flow_type}")
-
+def _ensure_inventory(db, batch_no, warehouse, spec):
     inv = db.query(HoneyInventory).filter(
-        HoneyInventory.batch_no == data.batch_no,
-        HoneyInventory.warehouse == data.warehouse,
-        HoneyInventory.spec == data.spec,
+        HoneyInventory.batch_no == batch_no,
+        HoneyInventory.warehouse == warehouse,
+        HoneyInventory.spec == spec,
     ).first()
-
     if not inv:
         inv = HoneyInventory(
-            batch_no=data.batch_no,
-            warehouse=data.warehouse,
-            spec=data.spec,
+            batch_no=batch_no,
+            warehouse=warehouse,
+            spec=spec,
             quantity=0,
             unit_price=0.0,
             low_stock_threshold=10,
         )
         db.add(inv)
         db.flush()
-
-    quantity_before = inv.quantity
-    change = data.change_quantity
-
-    if data.flow_type in ("outbound", "stocktake_loss"):
-        change = -abs(change)
-    else:
-        change = abs(change)
-
-    quantity_after = quantity_before + change
-    if quantity_after < 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"库存不足: 当前 {quantity_before}，操作数量 {abs(change)}",
-        )
-
-    inv.quantity = quantity_after
-    inv.updated_at = datetime.now()
-
-    batch = db.query(HoneyBatch).filter(HoneyBatch.batch_no == data.batch_no).first()
+    batch = db.query(HoneyBatch).filter(HoneyBatch.batch_no == batch_no).first()
     if batch:
         if not inv.honey_type:
             inv.honey_type = batch.honey_type
@@ -304,23 +280,75 @@ async def create_flow(data: StockFlowCreate, db: Session = Depends(get_db)):
             inv.grade = batch.grade
         if not inv.farm_id:
             inv.farm_id = batch.farm_id
+    return inv
 
+
+def _apply_change(db, inv, change, flow_type, operator, reason, target_warehouse=None):
+    quantity_before = inv.quantity
+    quantity_after = quantity_before + change
+    if quantity_after < 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{inv.warehouse} 库存不足: 当前 {quantity_before}，操作数量 {abs(change)}",
+        )
+    inv.quantity = quantity_after
+    inv.updated_at = datetime.now()
     flow = HoneyStockFlow(
         inventory_id=inv.id,
-        batch_no=data.batch_no,
-        warehouse=data.warehouse,
-        spec=data.spec,
-        flow_type=data.flow_type,
+        batch_no=inv.batch_no,
+        warehouse=inv.warehouse,
+        spec=inv.spec,
+        flow_type=flow_type,
         change_quantity=change,
         quantity_before=quantity_before,
         quantity_after=quantity_after,
-        operator=data.operator,
-        reason=data.reason,
+        operator=operator,
+        reason=reason,
+        target_warehouse=target_warehouse,
     )
     db.add(flow)
+    return flow
+
+
+@router.post("/flows", summary="录入出入库流水（自动更新库存数量）")
+async def create_flow(data: StockFlowCreate, db: Session = Depends(get_db)):
+    if data.flow_type not in FLOW_TYPES:
+        raise HTTPException(status_code=400, detail=f"无效的流水类型: {data.flow_type}")
+
+    qty = abs(data.change_quantity)
+    if data.flow_type == "transfer":
+        if not data.target_warehouse:
+            raise HTTPException(status_code=400, detail="调拨必须指定目标仓库")
+        if data.target_warehouse == data.warehouse:
+            raise HTTPException(status_code=400, detail="源仓库与目标仓库不能相同")
+
+        src_inv = _ensure_inventory(db, data.batch_no, data.warehouse, data.spec)
+        dst_inv = _ensure_inventory(db, data.batch_no, data.target_warehouse, data.spec)
+
+        src_flow = _apply_change(
+            db, src_inv, -qty, "transfer", data.operator, data.reason,
+            target_warehouse=data.target_warehouse,
+        )
+        dst_flow = _apply_change(
+            db, dst_inv, +qty, "transfer", data.operator, data.reason,
+            target_warehouse=data.warehouse,
+        )
+        db.commit()
+        db.refresh(src_flow)
+        return {
+            "source": _flow_to_out(src_flow),
+            "target": _flow_to_out(dst_flow),
+        }
+
+    if data.flow_type in ("outbound", "stocktake_loss"):
+        change = -qty
+    else:
+        change = +qty
+
+    inv = _ensure_inventory(db, data.batch_no, data.warehouse, data.spec)
+    flow = _apply_change(db, inv, change, data.flow_type, data.operator, data.reason)
     db.commit()
     db.refresh(flow)
-
     return _flow_to_out(flow)
 
 

@@ -49,8 +49,11 @@ function StockFlowForm({ meta, onClose, onSuccess }) {
         change_quantity: 1,
         operator: '',
         reason: '',
+        target_warehouse: meta?.warehouses?.[1] || meta?.warehouses?.[0] || '',
     });
     const [submitting, setSubmitting] = useState(false);
+
+    const isTransfer = form.flow_type === 'transfer';
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -58,10 +61,14 @@ function StockFlowForm({ meta, onClose, onSuccess }) {
             toast.warning('请填写批次号和操作人');
             return;
         }
+        if (isTransfer && form.warehouse === form.target_warehouse) {
+            toast.warning('源仓库与目标仓库不能相同');
+            return;
+        }
         setSubmitting(true);
         try {
             await axios.post(`${API_BASE_URL}/api/honey-inventory/flows`, form);
-            toast.success('出入库录入成功');
+            toast.success(isTransfer ? '调拨成功，已同步更新两个仓库库存' : '出入库录入成功');
             onSuccess();
             onClose();
         } catch (err) {
@@ -99,7 +106,9 @@ function StockFlowForm({ meta, onClose, onSuccess }) {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="block text-sm text-slate-400 mb-1">仓库 *</label>
+                            <label className="block text-sm text-slate-400 mb-1">
+                                {isTransfer ? '源仓库 *' : '仓库 *'}
+                            </label>
                             <select value={form.warehouse} onChange={e => setForm({ ...form, warehouse: e.target.value })}
                                 className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 focus:border-amber-500 outline-none text-sm">
                                 {meta?.warehouses?.map(wh => (
@@ -107,16 +116,42 @@ function StockFlowForm({ meta, onClose, onSuccess }) {
                                 ))}
                             </select>
                         </div>
-                        <div>
-                            <label className="block text-sm text-slate-400 mb-1">规格 *</label>
-                            <select value={form.spec} onChange={e => setForm({ ...form, spec: e.target.value })}
-                                className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 focus:border-amber-500 outline-none text-sm">
-                                {meta?.specs?.map(sp => (
-                                    <option key={sp} value={sp}>{SPEC_LABELS[sp] || sp}</option>
-                                ))}
-                            </select>
-                        </div>
+                        {isTransfer ? (
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">目标仓库 *</label>
+                                <select value={form.target_warehouse}
+                                    onChange={e => setForm({ ...form, target_warehouse: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 focus:border-amber-500 outline-none text-sm">
+                                    {meta?.warehouses?.map(wh => (
+                                        <option key={wh} value={wh}>{wh}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">规格 *</label>
+                                <select value={form.spec} onChange={e => setForm({ ...form, spec: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 focus:border-amber-500 outline-none text-sm">
+                                    {meta?.specs?.map(sp => (
+                                        <option key={sp} value={sp}>{SPEC_LABELS[sp] || sp}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
+                    {isTransfer && (
+                        <div className="grid grid-cols-1 gap-4">
+                            <div>
+                                <label className="block text-sm text-slate-400 mb-1">规格 *</label>
+                                <select value={form.spec} onChange={e => setForm({ ...form, spec: e.target.value })}
+                                    className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 focus:border-amber-500 outline-none text-sm">
+                                    {meta?.specs?.map(sp => (
+                                        <option key={sp} value={sp}>{SPEC_LABELS[sp] || sp}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm text-slate-400 mb-1">操作数量 *</label>
@@ -186,7 +221,9 @@ function FlowTimeline({ flows, inventory, onClose }) {
                                             <div className="flex items-center justify-between mb-2">
                                                 <div className="flex items-center gap-2">
                                                     <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${cfg.bg} ${cfg.color} border ${cfg.border}`}>
-                                                        {cfg.label}
+                                                        {flow.flow_type === 'transfer'
+                                                            ? (flow.change_quantity < 0 ? `调至 ${flow.target_warehouse}` : `从 ${flow.target_warehouse} 调入`)
+                                                            : cfg.label}
                                                     </span>
                                                     <span className="text-slate-300 text-sm font-medium">
                                                         {flow.change_quantity > 0 ? '+' : ''}{flow.change_quantity}
