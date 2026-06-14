@@ -511,7 +511,7 @@ function AddQueenModal({ isOpen, onClose, onSuccess, speciesList }) {
                                 <option value="">— 无（初代蜂王）—</option>
                                 {selectableQueens.map(q => (
                                     <option key={q.id} value={q.id}>
-                                        {q.queen_no} ({q.bee_species})
+                                        {q.queen_no} ({q.bee_species}){q.is_retired === 1 ? ' - 已退役' : ''}
                                     </option>
                                 ))}
                             </select>

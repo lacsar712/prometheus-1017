@@ -261,14 +261,16 @@ class QueenBeeService:
             "has_more_ancestors": has_more_ancestors,
         }
 
-    def get_selectable_queens(self, exclude_id: Optional[int] = None, bee_species: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = self.db.query(QueenBee).filter(QueenBee.is_retired == 0)
+    def get_selectable_queens(self, exclude_id: Optional[int] = None, bee_species: Optional[str] = None, include_retired: bool = True) -> List[Dict[str, Any]]:
+        query = self.db.query(QueenBee)
+        if not include_retired:
+            query = query.filter(QueenBee.is_retired == 0)
         if exclude_id:
             query = query.filter(QueenBee.id != exclude_id)
         if bee_species:
             query = query.filter(QueenBee.bee_species == bee_species)
 
-        queens = query.order_by(QueenBee.queen_no.asc()).all()
+        queens = query.order_by(QueenBee.is_retired.asc(), QueenBee.queen_no.asc()).all()
         return [
             {
                 "id": q.id,

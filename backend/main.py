@@ -10,6 +10,7 @@ from collections import defaultdict
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, Index
 from sqlalchemy.orm import Session, relationship
@@ -867,6 +868,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/trace/{batch_no}", tags=["路由重定向"], include_in_schema=False)
+async def redirect_trace_page(batch_no: str):
+    return RedirectResponse(url=f"http://localhost:3000/trace/{batch_no}")
+
+
+@app.get("/trace", tags=["路由重定向"], include_in_schema=False)
+async def redirect_trace_root():
+    return RedirectResponse(url="http://localhost:3000/?screen=trace")
 
 
 instrumentator = Instrumentator(

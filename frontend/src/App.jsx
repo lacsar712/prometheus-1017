@@ -13,6 +13,7 @@ import DashboardScreen from './components/DashboardScreen'
 import FeedingScreen from './components/FeedingScreen'
 import WeatherScreen from './components/WeatherScreen'
 import TracePage from './components/trace/TracePage'
+import TraceManagePage from './components/TraceManagePage'
 import BackupScreen from './components/BackupScreen'
 import QueenBeePage from './components/QueenBeePage'
 import LanguageResourcePage from './components/LanguageResourcePage'
@@ -402,13 +403,27 @@ function ConsoleApp() {
                                 <div className="flex flex-wrap items-center gap-2">
                                     <button
                                         onClick={() => {
-                                            window.open('/trace/B20260414001', '_blank');
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'trace');
+                                            window.open(url.toString(), '_blank');
                                         }}
                                         className="px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium hover:bg-amber-500/30 transition-all flex items-center gap-1.5"
                                     >
                                         <QrCode className="w-3.5 h-3.5" />
+                                        进入溯源管理
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            window.open('/trace/B20260414001', '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/40 text-slate-300 text-xs font-medium hover:bg-slate-600/50 transition-all flex items-center gap-1.5"
+                                    >
+                                        <QrCode className="w-3.5 h-3.5" />
                                         查看示例
                                     </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
+                                        ?screen=trace
+                                    </code>
                                     <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
                                         /trace/:批次号
                                     </code>
@@ -741,6 +756,10 @@ function ScreenRouter() {
 
     if (screen === 'backup') {
         return <BackupScreen />;
+    }
+
+    if (screen === 'trace') {
+        return <TraceManagePage />;
     }
 
     if (screen === 'queen-bee') {

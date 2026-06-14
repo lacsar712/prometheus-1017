@@ -27,10 +27,15 @@ async def get_bee_species(db: Session = Depends(get_db)):
 async def get_selectable_queens(
     exclude_id: Optional[int] = Query(None, description="排除的女王蜂ID"),
     bee_species: Optional[str] = Query(None, description="按蜂种过滤"),
+    include_retired: bool = Query(True, description="是否包含已退役蜂王"),
     db: Session = Depends(get_db),
 ):
     svc = QueenBeeService(db)
-    queens = svc.get_selectable_queens(exclude_id=exclude_id, bee_species=bee_species)
+    queens = svc.get_selectable_queens(
+        exclude_id=exclude_id,
+        bee_species=bee_species,
+        include_retired=include_retired,
+    )
     return {"queens": queens}
 
 
