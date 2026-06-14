@@ -9,12 +9,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy import inspect, text
 
 from models.backup import BackupRecord
+from models.snapshot import SnapshotRecord
 from models.database import Base, engine
 
 logger = logging.getLogger(__name__)
 
 BACKUP_DIR = os.getenv("BACKUP_DIR", "./backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
+SNAPSHOT_DIR = os.path.join(BACKUP_DIR, "snapshots")
+os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
 OBJECT_STORAGE_DIR = os.getenv("OBJECT_STORAGE_DIR", "./object_storage")
 os.makedirs(OBJECT_STORAGE_DIR, exist_ok=True)
@@ -83,7 +86,7 @@ class BackupService:
 
         tables = self._get_table_names()
         for table_name in tables:
-            if table_name == "backup_records":
+            if table_name in ("backup_records", "snapshot_records"):
                 continue
             backup_data["tables"][table_name] = self._dump_table_data(table_name)
 
@@ -117,30 +120,140 @@ class BackupService:
         logger.info(f"Backup created: {filename}, size: {file_size} bytes")
         return record
 
-    def create_snapshot(self) -> str:
+    def create_snapshot(
+        self,
+        generated_by: str = "system",
+        related_backup_id: Optional[int] = None,
+        remarks: Optional[str] = None
+    ) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         snapshot_id = f"snapshot_{timestamp}"
-        snapshot_dir = os.path.join(BACKUP_DIR, "snapshots", snapshot_id)
-        os.makedirs(snapshot_dir, exist_ok=True)
+        snapshot_zip_path = os.path.join(SNAPSHOT_DIR, f"{snapshot_id}.zip")
+
+        snapshot_type = "pre_restore" if related_backup_id else "manual"
+        if remarks and "回滚" in remarks:
+            snapshot_type = "rollback_safety"
 
         snapshot_data: Dict[str, Any] = {
             "version": "1.0",
+            "snapshot_id": snapshot_id,
             "created_at": datetime.now().isoformat(),
-            "tables": {}
+            "tables": {},
+            "object_storage": self._collect_object_storage()
         }
 
         tables = self._get_table_names()
         for table_name in tables:
-            if table_name == "backup_records":
+            if table_name in ("backup_records", "snapshot_records"):
                 continue
             snapshot_data["tables"][table_name] = self._dump_table_data(table_name)
 
-        snapshot_path = os.path.join(snapshot_dir, "snapshot_data.json")
-        with open(snapshot_path, 'w', encoding='utf-8') as f:
-            json.dump(snapshot_data, f, ensure_ascii=False, default=str)
+        json_content = json.dumps(snapshot_data, ensure_ascii=False, default=str)
 
-        logger.info(f"Snapshot created: {snapshot_id}")
+        with zipfile.ZipFile(snapshot_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('snapshot_data.json', json_content)
+
+            if os.path.exists(OBJECT_STORAGE_DIR):
+                for root, dirs, files in os.walk(OBJECT_STORAGE_DIR):
+                    for f in files:
+                        filepath = os.path.join(root, f)
+                        arcname = os.path.join("object_storage", os.path.relpath(filepath, OBJECT_STORAGE_DIR))
+                        zf.write(filepath, arcname)
+
+        file_size = os.path.getsize(snapshot_zip_path)
+
+        snap_record = SnapshotRecord(
+            snapshot_id=snapshot_id,
+            file_size=file_size,
+            snapshot_type=snapshot_type,
+            related_backup_id=related_backup_id,
+            generated_by=generated_by,
+            remarks=remarks,
+            snapshot_path=snapshot_zip_path,
+            is_restored="no"
+        )
+        self.db.add(snap_record)
+        self.db.commit()
+
+        logger.info(f"Snapshot created: {snapshot_id}, size: {file_size} bytes")
         return snapshot_id
+
+    def list_snapshots(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+        query = self.db.query(SnapshotRecord).order_by(SnapshotRecord.created_at.desc())
+        total = query.count()
+        records = query.offset((page - 1) * page_size).limit(page_size).all()
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "records": records
+        }
+
+    def get_snapshot(self, snapshot_id: str) -> Optional[SnapshotRecord]:
+        return self.db.query(SnapshotRecord).filter(SnapshotRecord.snapshot_id == snapshot_id).first()
+
+    def rollback_snapshot(self, snapshot_id: str, generated_by: str = "system") -> Dict[str, Any]:
+        snap = self.get_snapshot(snapshot_id)
+        if not snap:
+            raise ValueError(f"Snapshot {snapshot_id} not found")
+
+        snap_path = snap.snapshot_path or os.path.join(SNAPSHOT_DIR, f"{snapshot_id}.zip")
+        if not os.path.exists(snap_path):
+            raise FileNotFoundError(f"Snapshot file not found: {snap_path}")
+
+        rollback_snapshot_id = self.create_snapshot(
+            generated_by=generated_by,
+            remarks=f"回滚前自动快照，回滚目标: {snapshot_id}"
+        )
+
+        try:
+            with zipfile.ZipFile(snap_path, 'r') as zf:
+                with zf.open('snapshot_data.json') as f:
+                    snapshot_data = json.load(f)
+
+                for table_name, table_data in snapshot_data.get("tables", {}).items():
+                    if table_name in ("backup_records", "snapshot_records"):
+                        continue
+                    self._restore_table_data(table_name, table_data)
+
+                if os.path.exists(OBJECT_STORAGE_DIR):
+                    shutil.rmtree(OBJECT_STORAGE_DIR)
+                    os.makedirs(OBJECT_STORAGE_DIR, exist_ok=True)
+
+                for name in zf.namelist():
+                    if name.startswith("object_storage/") and not name.endswith("/"):
+                        rel_path = name[len("object_storage/"):]
+                        extract_path = os.path.join(OBJECT_STORAGE_DIR, rel_path)
+                        os.makedirs(os.path.dirname(extract_path), exist_ok=True)
+                        with zf.open(name) as src, open(extract_path, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+
+            snap.is_restored = "yes"
+            self.db.commit()
+
+            logger.info(f"Rollback to snapshot {snapshot_id} successfully, rollback snapshot: {rollback_snapshot_id}")
+            return {
+                "success": True,
+                "target_snapshot_id": snapshot_id,
+                "rollback_snapshot_id": rollback_snapshot_id
+            }
+        except Exception as e:
+            logger.error(f"Rollback failed: {e}")
+            raise
+
+    def delete_snapshot(self, snapshot_id: str) -> bool:
+        snap = self.get_snapshot(snapshot_id)
+        if not snap:
+            return False
+
+        snap_path = snap.snapshot_path or os.path.join(SNAPSHOT_DIR, f"{snapshot_id}.zip")
+        if os.path.exists(snap_path):
+            os.remove(snap_path)
+
+        self.db.delete(snap)
+        self.db.commit()
+        logger.info(f"Snapshot {snapshot_id} deleted")
+        return True
 
     def list_backups(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
         query = self.db.query(BackupRecord).order_by(BackupRecord.created_at.desc())
@@ -171,7 +284,11 @@ class BackupService:
         if not os.path.exists(backup_path):
             raise FileNotFoundError(f"Backup file not found: {backup_path}")
 
-        snapshot_id = self.create_snapshot()
+        snapshot_id = self.create_snapshot(
+            generated_by=generated_by,
+            related_backup_id=backup_id,
+            remarks=f"恢复备份前自动快照，恢复备份ID: {backup_id} ({record.filename})"
+        )
 
         try:
             with zipfile.ZipFile(backup_path, 'r') as zf:
@@ -179,7 +296,7 @@ class BackupService:
                     backup_data = json.load(f)
 
                 for table_name, table_data in backup_data.get("tables", {}).items():
-                    if table_name == "backup_records":
+                    if table_name in ("backup_records", "snapshot_records"):
                         continue
                     self._restore_table_data(table_name, table_data)
 
@@ -235,5 +352,27 @@ class BackupService:
             "generated_by": record.generated_by,
             "remarks": record.remarks,
             "snapshot_id": record.snapshot_id,
+            "created_at": record.created_at.isoformat() if record.created_at else None
+        }
+
+    def snapshot_to_dict(self, record: SnapshotRecord) -> Dict[str, Any]:
+        type_map = {
+            "pre_restore": "恢复前快照",
+            "rollback_safety": "回滚保险快照",
+            "manual": "手动快照"
+        }
+        return {
+            "id": record.id,
+            "snapshot_id": record.snapshot_id,
+            "file_size": record.file_size,
+            "file_size_mb": round(record.file_size / (1024 * 1024), 2) if record.file_size else 0,
+            "snapshot_type": record.snapshot_type,
+            "snapshot_type_name": type_map.get(record.snapshot_type, record.snapshot_type),
+            "related_backup_id": record.related_backup_id,
+            "generated_by": record.generated_by,
+            "remarks": record.remarks,
+            "snapshot_path": record.snapshot_path,
+            "is_restored": record.is_restored,
+            "is_restored_name": "已回滚" if record.is_restored == "yes" else "可用",
             "created_at": record.created_at.isoformat() if record.created_at else None
         }

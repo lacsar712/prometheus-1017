@@ -21,6 +21,7 @@ from models.honey_batch import HoneyBatch, BatchEvent
 from models.honey_inventory import HoneyInventory, HoneyStockFlow
 from models.weather import WeatherForecast, WeatherAlert, AlertAction, AlertActionState
 from models.backup import BackupRecord
+from models.snapshot import SnapshotRecord
 from models.queen_bee import QueenBee
 from models.pest_disease import PestDisease
 from routers.trace import router as trace_router

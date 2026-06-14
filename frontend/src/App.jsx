@@ -4,7 +4,8 @@ import axios from 'axios'
 import {
     Activity, BarChart3, Clock, AlertCircle, Plus, Database,
     Terminal, Server, Layout, Monitor, ChevronRight, Droplets,
-    CloudSun, Crown, Globe, Languages, Bug, Package, Mail, QrCode
+    CloudSun, Crown, Globe, Languages, Bug, Package, Mail, QrCode,
+    HardDrive, ShieldCheck
 } from 'lucide-react'
 import { toast } from 'react-toastify'
 
@@ -410,6 +411,37 @@ function ConsoleApp() {
                                     </button>
                                     <code className="px-2 py-1 rounded-md bg-slate-900/60 text-amber-300/90 text-xs border border-amber-500/20 font-mono">
                                         /trace/:批次号
+                                    </code>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-3xl p-6 bg-gradient-to-r from-emerald-500/10 via-green-400/5 to-transparent border border-emerald-500/20">
+                        <div className="flex items-start gap-4">
+                            <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex-shrink-0">
+                                <HardDrive className="w-6 h-6 text-emerald-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="text-lg font-semibold text-emerald-200 mb-1">数据备份与恢复 · 已上线</h3>
+                                <p className="text-sm text-emerald-200/70 leading-relaxed mb-3">
+                                    覆盖业务数据库与对象存储的整库备份。支持手动立即备份与定时全量备份，
+                                    恢复前自动生成快照可随时回滚，删除/恢复均需二次确认防止误操作。
+                                </p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => {
+                                            const url = new URL(window.location.href);
+                                            url.searchParams.set('screen', 'backup');
+                                            window.open(url.toString(), '_blank');
+                                        }}
+                                        className="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-medium hover:bg-emerald-500/30 transition-all flex items-center gap-1.5"
+                                    >
+                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                        进入备份管理
+                                    </button>
+                                    <code className="px-2 py-1 rounded-md bg-slate-900/60 text-emerald-300/90 text-xs border border-emerald-500/20 font-mono">
+                                        ?screen=backup
                                     </code>
                                 </div>
                             </div>
